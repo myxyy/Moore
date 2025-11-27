@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
+from tqdm import tqdm
 
 def moore_mask(degree: int) -> torch.Tensor:
     size = 1 + degree + (degree - 1) * degree
@@ -22,11 +23,12 @@ def moore_target(degree: int) -> torch.Tensor:
 
 
 degree = 7
-batch_size = 16
+batch_size = 32
+num_steps = 10000
 
-torch.set_printoptions(precision=1)
+torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
-partial_optimizer = partial(torch.optim.Adam, lr=0.1)
+partial_optimizer = partial(torch.optim.Adam, lr=1e-0)
 
 def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
     adj_mat = F.sigmoid(params)
@@ -52,21 +54,28 @@ class MooreModel(nn.Module):
 
 model = MooreModel(degree).cuda()
 
-params = nn.Parameter(torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda())
-optimizer = partial_optimizer(params=[params])
+while True:
+    params = nn.Parameter(torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda())
+    optimizer = partial_optimizer(params=[params])
 
-for step in range(10000):
-    optimizer.zero_grad()
-    adj_mat = model(params)
+    t = tqdm(range(num_steps))
+    for step in t:
+        optimizer.zero_grad()
+        adj_mat = model(params)
+        hat = torch.matmul(adj_mat, adj_mat) + adj_mat
+        loss_batch = F.mse_loss(hat, target[None,:,:], reduction='none').mean(dim=(1, 2))
+        loss = loss_batch.mean()
+        loss.backward()
+        optimizer.step()
+        t.set_postfix({'loss': loss_batch.min().item()})
+
+    adj_mat = torch.round(model(params).detach())
     hat = torch.matmul(adj_mat, adj_mat) + adj_mat
-    loss_batch = F.mse_loss(hat, target, reduction='none').mean(dim=(1, 2))
-    loss = loss_batch.mean()
-    loss.backward()
-    optimizer.step()
-    print(f'Step {step}: Loss = {loss_batch.min().item():.4f}')
-
-adj_mat = torch.round(model(params).detach())
-hat = torch.matmul(adj_mat, adj_mat) + adj_mat
-print(adj_mat)
-print((hat - target).sum(dim=(1, 2)).min().item())
-
+    min_index = torch.argmin((hat - target).abs().sum(dim=(1, 2)))
+    #print(adj_mat[min_index].to(torch.int8))
+    #print((hat - target)[min_index].abs().sum().item())
+    if (hat - target)[min_index].abs().sum().item() == 0:
+        print("Success!")
+        # save the adjacency matrix
+        torch.save(adj_mat[min_index].to(torch.int8).cpu(), f'moore_degree{degree}_adj_mat.pt')
+        break

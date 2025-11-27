@@ -23,12 +23,12 @@ def moore_target(degree: int) -> torch.Tensor:
 
 
 degree = 57
-batch_size = 4
-num_steps = 10000
+batch_size = 1
+num_steps = 50000
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
-partial_optimizer = partial(torch.optim.Adam, lr=1e-1)
+partial_optimizer = partial(torch.optim.Adam, lr=4e-1)
 
 def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
     adj_mat = F.sigmoid(params)

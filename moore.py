@@ -22,13 +22,13 @@ def moore_target(degree: int) -> torch.Tensor:
     return torch.eye(size) * (degree - 1) + torch.ones(size, size)
 
 
-degree = 7
-batch_size = 32
+degree = 57
+batch_size = 4
 num_steps = 10000
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
-partial_optimizer = partial(torch.optim.Adam, lr=1e-0)
+partial_optimizer = partial(torch.optim.Adam, lr=1e-1)
 
 def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
     adj_mat = F.sigmoid(params)
@@ -53,6 +53,7 @@ class MooreModel(nn.Module):
         return adj_mat
 
 model = MooreModel(degree).cuda()
+target = target[None,:,:].expand(batch_size, -1, -1)
 
 while True:
     params = nn.Parameter(torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda())
@@ -63,8 +64,8 @@ while True:
         optimizer.zero_grad()
         adj_mat = model(params)
         hat = torch.matmul(adj_mat, adj_mat) + adj_mat
-        loss_batch = F.mse_loss(hat, target[None,:,:], reduction='none').mean(dim=(1, 2))
-        loss = loss_batch.mean()
+        loss_batch = F.mse_loss(hat, target, reduction='none').mean(dim=(1, 2))
+        loss = loss_batch.sum()
         loss.backward()
         optimizer.step()
         t.set_postfix({'loss': loss_batch.min().item()})

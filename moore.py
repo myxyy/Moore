@@ -4,6 +4,8 @@ import torch.nn.functional as F
 from functools import partial
 from tqdm import tqdm
 
+torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
+
 def moore_mask(degree: int) -> torch.Tensor:
     size = 1 + degree + (degree - 1) * degree
     mask = torch.ones(size, size)
@@ -22,18 +24,14 @@ def moore_target(degree: int) -> torch.Tensor:
     return torch.eye(size) * (degree - 1) + torch.ones(size, size)
 
 
-degree = 57
-batch_size = 8
+#degree = 57
+#batch_size = 8
+#num_steps = 50000
+degree = 7
+batch_size = 32
 num_steps = 50000
-#degree = 7
-#batch_size = 32
-#num_steps = 10000
 
-torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
-
-#lr = 1e-3
-lr = 4e-1
-partial_optimizer = partial(torch.optim.Adam, lr=lr)
+partial_optimizer = partial(torch.optim.Adam, lr=1e-1)
 
 def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
     adj_mat = F.sigmoid(params)
@@ -61,17 +59,29 @@ model = MooreModel(degree).cuda()
 target = target[None,:,:].expand(batch_size, -1, -1)
 size = 1 + degree + (degree - 1) * degree
 
+
 while True:
     params = torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda()
     params = nn.Parameter(params)
     optimizer = partial_optimizer(params=[params])
-
     t = tqdm(range(num_steps))
     for step in t:
         optimizer.zero_grad()
+        #noise = torch.randn_like(params) / size
+        #params.data.add_(noise)
         adj_mat_hat = model(params)
         target_hat = torch.matmul(adj_mat_hat, adj_mat_hat) + adj_mat_hat
-        loss_batch = F.mse_loss(target_hat, target, reduction='none').mean(dim=(1, 2))
+        mse = F.mse_loss(target_hat, target, reduction='none')
+
+        mse_diagonal = mse.diagonal(dim1=1, dim2=2)
+        loss_diagonal = mse_diagonal.sum(dim=1) / size
+
+        eye = torch.eye(size).to(mse.device)
+        mse_without_diag = mse * (1 - eye)[None, :, :]
+        loss_without_diag = mse_without_diag.sum(dim=(1, 2)) / (size * (size - 1))
+
+        loss_batch = loss_diagonal * 1e-2 + loss_without_diag
+
         loss_batch_grad = torch.ones_like(loss_batch)
         loss_batch.backward(gradient=loss_batch_grad)
         optimizer.step()
@@ -86,7 +96,7 @@ while True:
             eye = torch.eye(best_target_hat.size(0)).to(best_target_hat.device)
             j = best_target_hat * (1 - eye) + eye
 
-        t.set_postfix({'min_loss': min_loss, 'diag_mean': diagonal.mean().item(), 'diag_std': diagonal.std().item(), 'j_mean': j.mean().item(), 'j_std': j.std().item()})
+        t.set_postfix({'min_loss': f'{min_loss:.3f}', 'diag_mean': f'{diagonal.mean().item():.3f}', 'diag_std': f'{diagonal.std().item():.3f}', 'j_mean': f'{j.mean().item():.3f}', 'j_std': f'{j.std().item():.3f}'})
 
     adj_mat_round = torch.round(model(params).detach())
     hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round

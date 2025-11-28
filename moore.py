@@ -3,8 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
 from tqdm import tqdm
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--gpu", type=int, default=0)
+args = parser.parse_args()
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
+
+device = torch.device(f"cuda:{args.gpu}")
 
 def moore_mask(degree: int) -> torch.Tensor:
     size = 1 + degree + (degree - 1) * degree
@@ -24,14 +30,14 @@ def moore_target(degree: int) -> torch.Tensor:
     return torch.eye(size) * (degree - 1) + torch.ones(size, size)
 
 
-#degree = 57
-#batch_size = 8
-#num_steps = 50000
-degree = 7
-batch_size = 32
+degree = 57
+batch_size = 1
 num_steps = 50000
+#degree = 7
+#batch_size = 32
+#num_steps = 50000
 
-partial_optimizer = partial(torch.optim.Adam, lr=1e-1)
+partial_optimizer = partial(torch.optim.Adam, lr=4e-1)
 
 def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
     adj_mat = F.sigmoid(params)
@@ -39,15 +45,14 @@ def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torc
     adj_mat = adj_mat + adj_mat.T
     adj_mat = adj_mat * mask
  
-mask = moore_mask(degree).detach().cuda()
-target = moore_target(degree).detach().cuda()
+mask = moore_mask(degree).detach().to(device)
+target = moore_target(degree).detach().to(device)
 
 class MooreModel(nn.Module):
     def __init__(self, degree: int):
         super(MooreModel, self).__init__()
         self.degree = degree
-        self.mask = moore_mask(degree).detach().cuda()
-
+        self.mask = moore_mask(degree).detach().to(device)
     def forward(self, params: torch.Tensor) -> torch.Tensor:
         adj_mat = F.sigmoid(params)
         adj_mat = F.pad(adj_mat, (0, 1 + self.degree, 0, 1 + self.degree), value=1.0).triu()
@@ -55,13 +60,13 @@ class MooreModel(nn.Module):
         adj_mat = adj_mat * self.mask
         return adj_mat
 
-model = MooreModel(degree).cuda()
-target = target[None,:,:].expand(batch_size, -1, -1)
+model = MooreModel(degree).to(device)
+target = target[None,:,:].expand(batch_size, -1, -1).to(device)
 size = 1 + degree + (degree - 1) * degree
 
 
 while True:
-    params = torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda()
+    params = torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).to(device)
     params = nn.Parameter(params)
     optimizer = partial_optimizer(params=[params])
     t = tqdm(range(num_steps))

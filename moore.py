@@ -22,9 +22,13 @@ def moore_target(degree: int) -> torch.Tensor:
     return torch.eye(size) * (degree - 1) + torch.ones(size, size)
 
 
-degree = 57
-batch_size = 1
-num_steps = 50000
+#degree = 57
+#batch_size = 1
+#num_steps = 50000
+degree = 7
+batch_size = 8
+num_steps = 10000
+
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -55,8 +59,8 @@ class MooreModel(nn.Module):
 model = MooreModel(degree).cuda()
 target = target[None,:,:].expand(batch_size, -1, -1)
 
+params = nn.Parameter(torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda())
 while True:
-    params = nn.Parameter(torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda())
     optimizer = partial_optimizer(params=[params])
 
     t = tqdm(range(num_steps))
@@ -80,3 +84,13 @@ while True:
         # save the adjacency matrix
         torch.save(adj_mat[min_index].to(torch.int8).cpu(), f'moore_degree{degree}_adj_mat.pt')
         break
+    
+    # flip sign of 10% of the parameters
+    with torch.no_grad():
+        num_params = params.numel()
+        num_flip = num_params // 10
+        indices = torch.randperm(num_params)[:num_flip]
+        flat_params = params.view(-1)
+        flat_params[indices] = -flat_params[indices]
+        params.data = flat_params.view_as(params)
+        params.data = params.data / params.data.std()  # re-normalize

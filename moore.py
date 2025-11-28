@@ -22,13 +22,12 @@ def moore_target(degree: int) -> torch.Tensor:
     return torch.eye(size) * (degree - 1) + torch.ones(size, size)
 
 
-#degree = 57
-#batch_size = 4
-#num_steps = 10000
-degree = 7
+degree = 57
 batch_size = 8
-num_steps = 10000
-
+num_steps = 50000
+#degree = 7
+#batch_size = 32
+#num_steps = 10000
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -60,14 +59,10 @@ class MooreModel(nn.Module):
 
 model = MooreModel(degree).cuda()
 target = target[None,:,:].expand(batch_size, -1, -1)
-
-lowest_loss = float('inf')
-rank1_param = None
+size = 1 + degree + (degree - 1) * degree
 
 while True:
     params = torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda()
-    if rank1_param is not None:
-        params[0] = rank1_param.detach().clone()
     params = nn.Parameter(params)
     optimizer = partial_optimizer(params=[params])
 
@@ -80,9 +75,18 @@ while True:
         loss_batch_grad = torch.ones_like(loss_batch)
         loss_batch.backward(gradient=loss_batch_grad)
         optimizer.step()
-        min_loss = loss_batch.min().item()
-        second_min_loss = torch.topk(loss_batch, 2, largest=False).values[1].item()
-        t.set_postfix({'min_loss': min_loss, 'second_min_loss': second_min_loss})
+
+        with torch.no_grad():
+            min_loss = loss_batch.min().item()
+            min_index = torch.argmin(loss_batch).item()
+            min_param = params[min_index]
+            best_adj_mat = model(min_param[None, :, :]).squeeze(0)
+            best_target_hat = torch.matmul(best_adj_mat, best_adj_mat) + best_adj_mat
+            diagonal = best_target_hat.diagonal()
+            eye = torch.eye(best_target_hat.size(0)).to(best_target_hat.device)
+            j = best_target_hat * (1 - eye) + eye
+
+        t.set_postfix({'min_loss': min_loss, 'diag_mean': diagonal.mean().item(), 'diag_std': diagonal.std().item(), 'j_mean': j.mean().item(), 'j_std': j.std().item()})
 
     adj_mat_round = torch.round(model(params).detach())
     hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round
@@ -92,15 +96,3 @@ while True:
         # save the adjacency matrix
         torch.save(adj_mat_round[min_index].to(torch.int8).cpu(), f'moore_degree{degree}_adj_mat.pt')
         break
-
-    adj_mat_hat = model(params)
-    target_hat = torch.matmul(adj_mat_hat, adj_mat_hat) + adj_mat_hat
-    loss_batch = F.mse_loss(target_hat, target, reduction='none').mean(dim=(1, 2))
-    min_loss = loss_batch.min().item()
-    if min_loss < lowest_loss:
-        lowest_loss = min_loss
-        min_index = torch.argmin(loss_batch)
-        rank1_param = params[min_index].detach().clone()
-        print(f"New lowest loss: {lowest_loss}")    
-
-

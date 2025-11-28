@@ -23,11 +23,17 @@ def moore_target(degree: int) -> torch.Tensor:
 
 
 #degree = 57
-#batch_size = 1
+#batch_size = 4
+#pool_size = 3
 #num_steps = 50000
 degree = 7
 batch_size = 8
+pool_size = 6
 num_steps = 10000
+
+mutation_rate = 0.05
+
+preserve_gene = True
 
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
@@ -59,8 +65,26 @@ class MooreModel(nn.Module):
 model = MooreModel(degree).cuda()
 target = target[None,:,:].expand(batch_size, -1, -1)
 
-params = nn.Parameter(torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).cuda())
+gene = torch.randn(degree * (degree - 1), degree * (degree - 1)).cuda()
+lowest_loss = float('inf')
+
 while True:
+    params = torch.randn(batch_size - pool_size, degree * (degree - 1), degree * (degree - 1)).cuda()
+    if pool_size > 0:
+        pool = gene[None,:,:].expand(pool_size, -1, -1).clone()
+        with torch.no_grad():
+            num_params = pool.numel() // pool_size
+            num_flip = int(num_params * mutation_rate)
+            for i in range(pool_size):
+                if preserve_gene and i == 0:
+                    continue
+                indices = torch.randperm(num_params)[:num_flip]
+                flat_params = pool[i].view(-1)
+                flat_params[indices] = -flat_params[indices]
+                pool[i].data = flat_params.view_as(pool[i])
+                pool[i].data = pool[i].data / pool[i].data.std()  # re-normalize
+        params = torch.cat([params, pool], dim=0)
+    params = nn.Parameter(params)
     optimizer = partial_optimizer(params=[params])
 
     t = tqdm(range(num_steps))
@@ -69,28 +93,27 @@ while True:
         adj_mat = model(params)
         hat = torch.matmul(adj_mat, adj_mat) + adj_mat
         loss_batch = F.mse_loss(hat, target, reduction='none').mean(dim=(1, 2))
-        loss = loss_batch.sum()
-        loss.backward()
+        loss_batch_grad = torch.ones_like(loss_batch)
+        loss_batch.backward(gradient=loss_batch_grad)
         optimizer.step()
         t.set_postfix({'loss': loss_batch.min().item()})
 
-    adj_mat = torch.round(model(params).detach())
-    hat = torch.matmul(adj_mat, adj_mat) + adj_mat
-    min_index = torch.argmin((hat - target).abs().sum(dim=(1, 2)))
-    #print(adj_mat[min_index].to(torch.int8))
-    #print((hat - target)[min_index].abs().sum().item())
-    if (hat - target)[min_index].abs().sum().item() == 0:
+    adj_mat_round = torch.round(model(params).detach())
+    hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round
+    min_index = torch.argmin((hat_round - target).abs().sum(dim=(1, 2)))
+    #print(adj_mat_round[min_index].to(torch.int8))
+    #print((hat_round - target)[min_index].abs().sum().item())
+    if (hat_round - target)[min_index].abs().sum().item() == 0:
         print("Success!")
         # save the adjacency matrix
         torch.save(adj_mat[min_index].to(torch.int8).cpu(), f'moore_degree{degree}_adj_mat.pt')
         break
-    
-    # flip sign of 10% of the parameters
-    with torch.no_grad():
-        num_params = params.numel()
-        num_flip = num_params // 10
-        indices = torch.randperm(num_params)[:num_flip]
-        flat_params = params.view(-1)
-        flat_params[indices] = -flat_params[indices]
-        params.data = flat_params.view_as(params)
-        params.data = params.data / params.data.std()  # re-normalize
+
+    adj_mat = model(params).detach()
+    hat = torch.matmul(adj_mat, adj_mat) + adj_mat
+    loss_batch = F.mse_loss(hat, target, reduction='none').mean(dim=(1, 2))
+    loss_min_index = torch.argmin(loss_batch)
+    if loss_batch[loss_min_index].item() < lowest_loss:
+        lowest_loss = loss_batch[loss_min_index].item()
+        gene = params[loss_min_index].detach().clone()
+

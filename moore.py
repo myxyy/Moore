@@ -24,14 +24,12 @@ def moore_target(degree: int) -> torch.Tensor:
 
 #degree = 57
 #batch_size = 4
-#pool_size = 3
-#num_steps = 50000
+#num_steps = 25000
 degree = 7
 batch_size = 8
-pool_size = 6
 num_steps = 10000
 
-mutation_rate = 0.05
+mutation_rate = 0.5
 
 preserve_gene = True
 
@@ -65,26 +63,24 @@ class MooreModel(nn.Module):
 model = MooreModel(degree).cuda()
 target = target[None,:,:].expand(batch_size, -1, -1)
 
-gene = torch.randn(degree * (degree - 1), degree * (degree - 1)).cuda()
+scale = 1e-3
+
+gene = torch.randn(degree * (degree - 1), degree * (degree - 1)).cuda() * scale
 lowest_loss = float('inf')
 
 while True:
-    params = torch.randn(batch_size - pool_size, degree * (degree - 1), degree * (degree - 1)).cuda()
-    if pool_size > 0:
-        pool = gene[None,:,:].expand(pool_size, -1, -1).clone()
-        with torch.no_grad():
-            num_params = pool.numel() // pool_size
-            num_flip = int(num_params * mutation_rate)
-            for i in range(pool_size):
-                if preserve_gene and i == 0:
-                    continue
-                indices = torch.randperm(num_params)[:num_flip]
-                flat_params = pool[i].view(-1)
-                flat_params[indices] = -flat_params[indices]
-                pool[i].data = flat_params.view_as(pool[i])
-                pool[i].data = pool[i].data / pool[i].data.std()  # re-normalize
-        params = torch.cat([params, pool], dim=0)
-    params = nn.Parameter(params)
+    pool = gene[None,:,:].expand(batch_size, -1, -1).clone()
+    num_params = pool.numel() // batch_size
+    num_flip = int(num_params * mutation_rate)
+    for i in range(batch_size):
+        if preserve_gene and i == 0:
+            continue
+        rand = torch.rand_like(pool[i])
+        flip = (rand < mutation_rate).float() * 2 - 1
+        pool[i] = pool[i] * flip
+        pool[i] = pool[i] / pool[i].std() * scale
+
+    params = nn.Parameter(pool)
     optimizer = partial_optimizer(params=[params])
 
     t = tqdm(range(num_steps))
@@ -96,7 +92,9 @@ while True:
         loss_batch_grad = torch.ones_like(loss_batch)
         loss_batch.backward(gradient=loss_batch_grad)
         optimizer.step()
-        t.set_postfix({'loss': loss_batch.min().item()})
+        min_loss = loss_batch.min().item()
+        second_min_loss = torch.topk(loss_batch, 2, largest=False).values[1].item()
+        t.set_postfix({'min_loss': min_loss, 'second_min_loss': second_min_loss})
 
     adj_mat_round = torch.round(model(params).detach())
     hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round

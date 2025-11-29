@@ -105,7 +105,11 @@ while True:
             eye = torch.eye(best_target_hat.size(0)).to(best_target_hat.device)
             j = best_target_hat * (1 - eye) + eye
 
-        t.set_postfix({'min_loss': f'{min_loss:.3f}', 'diag_mean': f'{diagonal.mean().item():.3f}', 'diag_std': f'{diagonal.std().item():.3f}', 'j_mean': f'{j.mean().item():.3f}', 'j_std': f'{j.std().item():.3f}'})
+        t.set_postfix({
+            'min_loss': f'{min_loss:.3f}',
+            'diag_mean': f'{diagonal.mean().item():.3f}',
+            'j_mean': f'{j.mean().item():.3f}'
+        })
 
     adj_mat_round = torch.round(model(params).detach())
     hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round

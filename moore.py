@@ -4,9 +4,21 @@ import torch.nn.functional as F
 from functools import partial
 from tqdm import tqdm
 import argparse
+
 parser = argparse.ArgumentParser()
-parser.add_argument("--gpu", type=int, default=0)
+parser.add_argument("--gpu", type=int, default=0, help="GPU device index")
+parser.add_argument("--degree", type=int, default=57, choices=[7, 57], help="Degree of the Moore graph (default: 57)")
+parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: 1)")
+parser.add_argument("--num_steps", type=int, default=50000, help="Number of optimization steps (default: 50000)")
+parser.add_argument("--lr", type=float, default=0.4, help="Learning rate for the optimizer (default: 0.4)")
+parser.add_argument("--diagonal_weight", type=float, default=1e-2, help="Weight for the diagonal loss component (default: 1e-2)")
 args = parser.parse_args()
+
+degree = args.degree
+batch_size = args.batch_size
+num_steps = args.num_steps
+lr = args.lr
+diagonal_weight = args.diagonal_weight
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -29,15 +41,7 @@ def moore_target(degree: int) -> torch.Tensor:
     size = 1 + degree + (degree - 1) * degree
     return torch.eye(size) * (degree - 1) + torch.ones(size, size)
 
-
-degree = 57
-batch_size = 1
-num_steps = 50000
-#degree = 7
-#batch_size = 32
-#num_steps = 50000
-
-partial_optimizer = partial(torch.optim.Adam, lr=4e-1)
+partial_optimizer = partial(torch.optim.Adam, lr=lr)
 
 def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
     adj_mat = F.sigmoid(params)
@@ -85,7 +89,7 @@ while True:
         mse_without_diag = mse * (1 - eye)[None, :, :]
         loss_without_diag = mse_without_diag.sum(dim=(1, 2)) / (size * (size - 1))
 
-        loss_batch = loss_diagonal * 1e-2 + loss_without_diag
+        loss_batch = loss_diagonal * diagonal_weight + loss_without_diag
 
         loss_batch_grad = torch.ones_like(loss_batch)
         loss_batch.backward(gradient=loss_batch_grad)

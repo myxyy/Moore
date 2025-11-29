@@ -12,6 +12,7 @@ parser.add_argument("--batch_size", type=int, default=1, help="Batch size for tr
 parser.add_argument("--num_steps", type=int, default=50000, help="Number of optimization steps (default: 50000)")
 parser.add_argument("--lr", type=float, default=0.4, help="Learning rate for the optimizer (default: 0.4)")
 parser.add_argument("--diagonal_weight", type=float, default=1e-2, help="Weight for the diagonal loss component (default: 1e-2)")
+parser.add_argument("--check_interval", type=int, default=1000, help="Interval for checking progress (default: 1000)")
 args = parser.parse_args()
 
 degree = args.degree
@@ -19,6 +20,7 @@ batch_size = args.batch_size
 num_steps = args.num_steps
 lr = args.lr
 diagonal_weight = args.diagonal_weight
+check_interval = args.check_interval
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -68,8 +70,8 @@ model = MooreModel(degree).to(device)
 target = target[None,:,:].expand(batch_size, -1, -1).to(device)
 size = 1 + degree + (degree - 1) * degree
 
-
-while True:
+is_success = False
+while not is_success:
     params = torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).to(device)
     params = nn.Parameter(params)
     optimizer = partial_optimizer(params=[params])
@@ -111,11 +113,13 @@ while True:
             'j_mean': f'{j.mean().item():.3f}'
         })
 
-    adj_mat_round = torch.round(model(params).detach())
-    hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round
-    min_index = torch.argmin((hat_round - target).abs().sum(dim=(1, 2)))
-    if (hat_round - target)[min_index].abs().sum().item() == 0:
-        print("Success!")
-        # save the adjacency matrix
-        torch.save(adj_mat_round[min_index].to(torch.int8).cpu(), f'moore_degree{degree}_adj_mat.pt')
-        break
+        if step % check_interval == 0:
+            adj_mat_round = torch.round(model(params).detach())
+            hat_round = torch.matmul(adj_mat_round, adj_mat_round) + adj_mat_round
+            min_index = torch.argmin((hat_round - target).abs().sum(dim=(1, 2)))
+            if (hat_round - target)[min_index].abs().sum().item() == 0:
+                print("Success!")
+                # save the adjacency matrix
+                torch.save(adj_mat_round[min_index].to(torch.int8).cpu(), f'moore_degree{degree}_adj_mat.pt')
+                is_success = True
+                break

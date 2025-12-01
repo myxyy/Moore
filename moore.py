@@ -9,10 +9,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--gpu", type=int, default=0, help="GPU device index")
 parser.add_argument("--degree", type=int, default=57, choices=[7, 57], help="Degree of the Moore graph (default: 57)")
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: 1)")
-parser.add_argument("--num_steps", type=int, default=50000, help="Number of optimization steps (default: 50000)")
+parser.add_argument("--num_steps", type=int, default=1000000, help="Number of optimization steps (default: 1000000)")
 parser.add_argument("--lr", type=float, default=0.4, help="Learning rate for the optimizer (default: 0.4)")
 parser.add_argument("--diagonal_weight", type=float, default=1e-2, help="Weight for the diagonal loss component (default: 1e-2)")
 parser.add_argument("--check_interval", type=int, default=1000, help="Interval for checking progress (default: 1000)")
+parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the target (default: 0.1)")
+parser.add_argument("--regularity_weight", type=float, default=0.0, help="Weight for the regularity loss component (default: 0.0)")
 args = parser.parse_args()
 
 degree = args.degree
@@ -21,6 +23,8 @@ num_steps = args.num_steps
 lr = args.lr
 diagonal_weight = args.diagonal_weight
 check_interval = args.check_interval
+noise_scale = args.noise_scale
+regularity_weight = args.regularity_weight
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -75,14 +79,15 @@ while not is_success:
     params = torch.randn(batch_size, degree * (degree - 1), degree * (degree - 1)).to(device)
     params = nn.Parameter(params)
     optimizer = partial_optimizer(params=[params])
-    t = tqdm(range(num_steps))
+    t = tqdm(range(num_steps), dynamic_ncols=True)
     for step in t:
         optimizer.zero_grad()
         #noise = torch.randn_like(params) / size
         #params.data.add_(noise)
         adj_mat_hat = model(params)
         target_hat = torch.matmul(adj_mat_hat, adj_mat_hat) + adj_mat_hat
-        mse = F.mse_loss(target_hat, target, reduction='none')
+        target_with_noise = target + torch.randn_like(target_hat) * noise_scale
+        mse = F.mse_loss(target_hat, target_with_noise, reduction='none')
 
         mse_diagonal = mse.diagonal(dim1=1, dim2=2)
         loss_diagonal = mse_diagonal.sum(dim=1) / size
@@ -91,7 +96,16 @@ while not is_success:
         mse_without_diag = mse * (1 - eye)[None, :, :]
         loss_without_diag = mse_without_diag.sum(dim=(1, 2)) / (size * (size - 1))
 
-        loss_batch = loss_diagonal * diagonal_weight + loss_without_diag
+
+        if regularity_weight > 0:
+            adj_mat_hat_param_part = adj_mat_hat[:, :degree * (degree - 1), :degree * (degree - 1)] + torch.eye(degree * (degree - 1)).to(adj_mat_hat.device)[None, :, :]
+            adj_mat_hat_param_part_reshape = adj_mat_hat_param_part.reshape(batch_size, degree * (degree - 1), degree, degree - 1)
+            col_sum = adj_mat_hat_param_part_reshape.sum(dim=3)
+            regularity_loss = F.mse_loss(col_sum, torch.ones_like(col_sum) + torch.randn_like(col_sum) * noise_scale, reduction='none').mean(dim=(1,2))
+        else:
+            regularity_loss = 0
+        
+        loss_batch = loss_diagonal * diagonal_weight + loss_without_diag + regularity_loss * regularity_weight
 
         loss_batch_grad = torch.ones_like(loss_batch)
         loss_batch.backward(gradient=loss_batch_grad)

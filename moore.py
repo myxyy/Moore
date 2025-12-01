@@ -14,7 +14,7 @@ parser.add_argument("--lr", type=float, default=0.4, help="Learning rate for the
 parser.add_argument("--diagonal_weight", type=float, default=1e-2, help="Weight for the diagonal loss component (default: 1e-2)")
 parser.add_argument("--check_interval", type=int, default=1000, help="Interval for checking progress (default: 1000)")
 parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the target (default: 0.1)")
-parser.add_argument("--regularity_weight", type=float, default=0.0, help="Weight for the regularity loss component (default: 0.0)")
+parser.add_argument("--regularity_weight", type=float, default=100.0, help="Weight for the regularity loss component (default: 100.0)")
 args = parser.parse_args()
 
 degree = args.degree

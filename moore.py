@@ -10,8 +10,8 @@ parser.add_argument("--gpu", type=int, default=0, help="GPU device index")
 parser.add_argument("--degree", type=int, default=57, choices=[7, 57], help="Degree of the Moore graph (default: 57)")
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: 1)")
 parser.add_argument("--num_steps", type=int, default=1000000, help="Number of optimization steps (default: 1000000)")
-parser.add_argument("--lr", type=float, default=0.4, help="Learning rate for the optimizer (default: 0.4)")
-parser.add_argument("--diagonal_weight", type=float, default=5e-3, help="Weight for the diagonal loss component (default: 5e-3)")
+parser.add_argument("--lr", type=float, default=1.0, help="Learning rate for the optimizer (default: 1.0)")
+parser.add_argument("--diagonal_weight", type=float, default=0.0, help="Weight for the diagonal loss component (default: 0.0)")
 parser.add_argument("--target_noise_scale", type=float, default=0.1, help="Scale of the noise added to the target (default: 0.1)")
 parser.add_argument("--regularity_weight", type=float, default=10.0, help="Weight for the regularity loss component (default: 10.0)")
 parser.add_argument("--regularity_noise_scale", type=float, default=0.1, help="Scale of the noise added to the target (default: 0.1)")
@@ -94,8 +94,11 @@ for step in t:
     target_with_noise = target + torch.randn_like(target_hat) * target_noise_scale
     mse = F.mse_loss(target_hat, target_with_noise, reduction='none')
 
-    mse_diagonal = mse.diagonal(dim1=1, dim2=2)
-    loss_diagonal = mse_diagonal.sum(dim=1) / size
+    if diagonal_weight > 0:
+        mse_diagonal = mse.diagonal(dim1=1, dim2=2)
+        loss_diagonal = mse_diagonal.sum(dim=1) / size
+    else:
+        loss_diagonal = 0
 
     eye = torch.eye(size).to(mse.device)
     mse_without_diag = mse * (1 - eye)[None, :, :]

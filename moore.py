@@ -7,7 +7,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpu", type=int, default=0, help="GPU device index")
-parser.add_argument("--degree", type=int, default=57, choices=[7, 57], help="Degree of the Moore graph (default: 57)")
+parser.add_argument("--degree", type=int, default=57, choices=[2, 3, 7, 57], help="Degree of the diameter 2 Moore graph (2, 3, 7, or 57) (default: 57)")
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: 1)")
 parser.add_argument("--num_steps", type=int, default=1000000, help="Number of optimization steps (default: 1000000)")
 parser.add_argument("--lr", type=float, default=1.0, help="Learning rate for the optimizer (default: 1.0)")
@@ -57,12 +57,6 @@ def moore_target(degree: int) -> torch.Tensor:
 
 partial_optimizer = partial(torch.optim.Adam, lr=lr)
 
-def moore_adj_mat(params: torch.Tensor, degree: int, mask: torch.Tensor) -> torch.Tensor:
-    adj_mat = F.sigmoid(params)
-    adj_mat = F.pad(adj_mat, (0, 1 + degree, 0, 1 + degree), value=1.0).triu()
-    adj_mat = adj_mat + adj_mat.T
-    adj_mat = adj_mat * mask
- 
 mask = moore_mask(degree).detach().to(device)
 target = moore_target(degree).detach().to(device)
 

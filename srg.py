@@ -1,0 +1,129 @@
+import torch
+import torch.nn as nn
+import math
+from functools import partial
+from tqdm import tqdm
+import torch.nn.functional as F
+import sys
+
+torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
+
+v = 99
+l = 1
+m = 2
+#v = 9
+#l = 1
+#m = 2
+
+b = m - l - 1
+c = m * (1 - v)
+discriminant = b * b - 4 * c
+sqrt_discriminant = math.sqrt(discriminant)
+if round(sqrt_discriminant) ** 2 != discriminant:
+    raise ValueError("Discriminant is not a perfect square.")
+sqrt_discriminant = round(sqrt_discriminant)
+
+if (-b + sqrt_discriminant) % 2 != 0:
+    raise ValueError("Roots are not integers.")
+
+k = (-b + sqrt_discriminant) // 2
+print(f"v: {v}, k: {k}, l: {l}, m: {m}")
+
+d = (l - m) * (l - m) + 4 * (k - m)
+sqrt_d = math.sqrt(d)
+if round(sqrt_d) ** 2 != d:
+    raise ValueError("d is not a perfect square.")
+
+sqrt_d = round(sqrt_d)
+if (l -m + sqrt_d) % 2 != 0:
+    raise ValueError("Eigenvalues are not integers.")
+
+eigenvalue1 = (l - m + sqrt_d) // 2
+eigenvalue2 = (l - m - sqrt_d) // 2
+
+e = (2 * k + (v - 1) * (l - m))
+if e % sqrt_d != 0:
+    raise ValueError("Eigenvalue multiplicities are not integers.")
+
+f = e // sqrt_d
+if ((v - 1) - f) % 2 != 0:
+    raise ValueError("Eigenvalue multiplicities are not integers.")
+
+multiplicity1 = ( (v - 1) - f ) // 2
+multiplicity2 = ( (v - 1) + f ) // 2
+
+eigenvalue_list = [k, eigenvalue1, eigenvalue2]
+multiplicity_list = [1, multiplicity1, multiplicity2]
+#print("Eigenvalues and their multiplicities:")
+#for ev, mult in zip(eigenvalue_list, multiplicity_list):
+#    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
+
+
+batch_size = 32
+device = torch.device("cuda:0")
+
+diagonal = []
+for ev, mult in zip(eigenvalue_list, multiplicity_list):
+    diagonal.extend([ev] * mult)
+diagonal_tensor = torch.tensor(diagonal, dtype=torch.float32).to(device)
+#print("Diagonal tensor:", diagonal_tensor)
+#print("Test:", diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor))
+
+#sys.exit(0)
+
+q = nn.Parameter(torch.randn(batch_size, v, v, device=device))
+lr = 1e-4
+partial_optimizer = partial(torch.optim.Adam, lr=lr)
+optimizer = partial_optimizer([q])
+eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
+
+qjq_target_vector = (diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)) / m
+qjq_target = torch.diag_embed(qjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
+
+num_steps = 1000000
+check_interval = 1000
+
+t = tqdm(range(num_steps), dynamic_ncols=True)
+for step in t:
+    optimizer.zero_grad()
+    orhogonal_loss = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none').mean(dim=(1,2))
+    qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
+    target_loss = F.mse_loss(qjq, qjq_target, reduction='none').mean(dim=(1,2))
+
+    adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
+    #print(adj_mat_hat[0])
+    #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
+    adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
+    adj_loss = F.mse_loss(adj_lhs, torch.zeros_like(adj_lhs), reduction='none').mean(dim=(1,2))
+    over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
+    under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
+    adj_loss = adj_loss + over_one_penalty * 10 + under_zero_penalty * 10
+
+    loss_batch = orhogonal_loss * 100 + target_loss + adj_loss
+    loss_batch_grad = torch.ones_like(loss_batch)
+    loss_batch.backward(gradient=loss_batch_grad)
+    optimizer.step()
+
+    loss_min_index = torch.argmin(loss_batch)
+
+    t.set_postfix({
+        'min_loss': f'{loss_batch[loss_min_index].item():.6f}',
+        'orthogonal_loss': f'{orhogonal_loss[loss_min_index].item():.6f}',
+        'target_loss': f'{target_loss[loss_min_index].item():.6f}',
+        'adj_loss': f'{adj_loss[loss_min_index].item():.6f}',
+    })
+
+    if step % check_interval == 0:
+        with torch.no_grad():
+            print(adj_mat_hat[loss_min_index])
+            round_adj_mat_hat = torch.round(torch.clamp(adj_mat_hat, 0, 1))
+            srg_test = torch.matmul(round_adj_mat_hat, round_adj_mat_hat) + (m - l) * round_adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(round_adj_mat_hat)
+            srg_test_batch = srg_test.abs().sum(dim=(1,2))
+            min_index = torch.argmin(srg_test_batch)
+            min_srg_test = srg_test_batch[min_index].item()
+            print(f"Step {step}: min_srg_test = {min_srg_test}")
+            if min_srg_test == 0:
+                print("Found SRG!")
+                print(round_adj_mat_hat[min_index].to(torch.int8))
+                torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), f"srg_v{v}_k{k}_l{l}_m{m}.pt")
+                break

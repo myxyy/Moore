@@ -8,23 +8,38 @@ import sys
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--gpu", type=int, default=0, help="GPU device index")
+parser.add_argument("--gpu", type=int, default=0, help="GPU device index (default: %(default)d)")
+parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
+parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer (default: %(default)f)")
+parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
+parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
+parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--vertices", type=int, default=99, help="Number of vertices (default: %(default)d)")
+parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
+parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
+parser.add_argument("--name", type=str, default=None, choices=[None, "conway99", "hoffman_singleton", "moore57", "petersen"], help="Name of the SRG to find (default: %(default)s)")
 args = parser.parse_args()
 
+batch_size = args.batch_size
+lr = args.lr
+orthogonal_weight = args.orthogonal_weight
+qjq_weight = args.qjq_weight
+range_penalty_weight = args.range_penalty_weight
+v= args.vertices
+l= args.lambd
+m = args.mu
+name = args.name
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
-# Conway99
-#v = 99
-#l = 1
-#m = 2
-# test
-#v = 9
-#l = 1
-#m = 2
-# Moore57
-v = 3250
-l = 0
-m = 1
+named_parameters = {
+    "conway99": (99, 1, 2),
+    "hoffman_singleton": (50, 0, 1),
+    "moore57": (3250, 0, 1),
+    "petersen": (10, 0, 1),
+}
+
+if name is not None:
+    v, l, m = named_parameters[args.name]
 
 b = m - l - 1
 c = m * (1 - v)
@@ -70,7 +85,6 @@ multiplicity_list = [1, multiplicity1, multiplicity2]
 #    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
 
 
-batch_size = 2
 device = torch.device(f"cuda:{args.gpu}")
 
 diagonal = []
@@ -83,8 +97,7 @@ diagonal_tensor = torch.tensor(diagonal, dtype=torch.float32).to(device)
 #sys.exit(0)
 
 q = nn.Parameter(torch.randn(batch_size, v, v, device=device))
-lr = 1e-5
-partial_optimizer = partial(torch.optim.Adam, lr=lr)
+partial_optimizer = partial(torch.optim.AdamW, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 
@@ -96,12 +109,12 @@ check_interval = 1000
 
 min_srg_test = 65536
 
-t = tqdm(range(num_steps), dynamic_ncols=True)
-for step in t:
+step = 0
+while True:
     optimizer.zero_grad()
     orhogonal_loss = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none').mean(dim=(1,2))
     qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
-    target_loss = F.mse_loss(qjq, qjq_target, reduction='none').mean(dim=(1,2))
+    qjq_loss = F.mse_loss(qjq, qjq_target, reduction='none').mean(dim=(1,2))
 
     adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
     #print(adj_mat_hat[0])
@@ -110,22 +123,22 @@ for step in t:
     adj_loss = F.mse_loss(adj_lhs, torch.zeros_like(adj_lhs), reduction='none').mean(dim=(1,2))
     over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
     under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
-    adj_loss = adj_loss + over_one_penalty * 10 + under_zero_penalty * 10
+    range_penalty = over_one_penalty + under_zero_penalty
 
-    loss_batch = orhogonal_loss * 100 + target_loss + adj_loss
+    loss_batch = orhogonal_loss * orthogonal_weight + qjq_loss * qjq_weight + range_penalty * range_penalty_weight + adj_loss
     loss_batch_grad = torch.ones_like(loss_batch)
     loss_batch.backward(gradient=loss_batch_grad)
     optimizer.step()
 
     loss_min_index = torch.argmin(loss_batch)
 
-    t.set_postfix({
-        'min_srg_test': f'{min_srg_test}',
-        'min_loss': f'{loss_batch[loss_min_index].item():.6f}',
-        'orthogonal_loss': f'{orhogonal_loss[loss_min_index].item():.6f}',
-        'target_loss': f'{target_loss[loss_min_index].item():.6f}',
-        'adj_loss': f'{adj_loss[loss_min_index].item():.6f}',
-    })
+    print(f'\r'\
+        f'min_srg_test: {min_srg_test}, '\
+        f'min_loss: {loss_batch[loss_min_index].item():.3f}, '\
+        f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.3f}, '\
+        f'qjq_loss: {qjq_loss[loss_min_index].item():.3f}, '\
+        f'range_penalty: {range_penalty[loss_min_index].item():.3f}, '\
+        f'adj_loss: {adj_loss[loss_min_index].item():.3f}', end='                    ', flush=True)
 
     if step % check_interval == 0:
         with torch.no_grad():

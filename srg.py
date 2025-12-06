@@ -21,6 +21,7 @@ parser.add_argument("--name", type=str, default=None, choices=[None, "conway99",
 parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--binary_penalty_weight", type=float, default=0.1, help="Weight for the binary penalty loss component (default: %(default)f)")
+parser.add_argument("--diagonal_weight", type=float, default=1.0, help="Weight for the diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 
 batch_size = args.batch_size
@@ -35,12 +36,14 @@ name = args.name
 noise_scale = args.noise_scale
 check_interval = args.check_interval
 binary_penalty_weight = args.binary_penalty_weight
+diagonal_weight = args.diagonal_weight
 
 print(f"orthogonal_weight: {orthogonal_weight}")
 print(f"qjq_weight: {qjq_weight}")
 print(f"range_penalty_weight: {range_penalty_weight}")
 print(f"noise_scale: {noise_scale}")
 print(f"binary_penalty_weight: {binary_penalty_weight}")
+print(f"diagonal_weight: {diagonal_weight}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -99,6 +102,12 @@ multiplicity_list = [1, multiplicity1, multiplicity2]
 #for ev, mult in zip(eigenvalue_list, multiplicity_list):
 #    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
 
+def separate_diagonal_loss(loss_mat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    diag_elements = torch.diagonal(loss_mat, dim1=-2, dim2=-1)
+    off_diag_elements = loss_mat - torch.diag_embed(diag_elements)
+    diag_loss = diag_elements.mean(dim=1)
+    off_diag_loss = off_diag_elements.sum(dim=(1,2)) / (loss_mat.size(1) * (loss_mat.size(2) - 1))
+    return diag_loss, off_diag_loss
 
 device = torch.device(f"cuda:{args.gpu}")
 
@@ -124,15 +133,21 @@ min_srg_test = 65536
 step = 0
 while True:
     optimizer.zero_grad()
-    orhogonal_loss = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none').mean(dim=(1,2))
+    orhogonal_loss_raw = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none')
+    orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
+    orhogonal_loss = orhogonal_loss_diag * diagonal_weight + orhogonal_loss_off_diag
+
     qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
-    qjq_loss = F.mse_loss(qjq, qjq_target, reduction='none').mean(dim=(1,2))
+    qjq_loss_raw = F.mse_loss(qjq, qjq_target, reduction='none')
+    qjq_loss_diag, qjq_loss_off_diag = separate_diagonal_loss(qjq_loss_raw)
+    qjq_loss = qjq_loss_diag * diagonal_weight + qjq_loss_off_diag
 
     adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
-    #print(adj_mat_hat[0])
     #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
     adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
-    adj_loss = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True), reduction='none').mean(dim=(1,2))
+    adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
+    adj_loss_diag, adj_loss_off_diag = separate_diagonal_loss(adj_loss_raw)
+    adj_loss = adj_loss_diag * diagonal_weight + adj_loss_off_diag
 
     over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
     under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))

@@ -5,15 +5,26 @@ from functools import partial
 from tqdm import tqdm
 import torch.nn.functional as F
 import sys
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--gpu", type=int, default=0, help="GPU device index")
+args = parser.parse_args()
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
-v = 99
-l = 1
-m = 2
+# Conway99
+#v = 99
+#l = 1
+#m = 2
+# test
 #v = 9
 #l = 1
 #m = 2
+# Moore57
+v = 3250
+l = 0
+m = 1
 
 b = m - l - 1
 c = m * (1 - v)
@@ -59,8 +70,8 @@ multiplicity_list = [1, multiplicity1, multiplicity2]
 #    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
 
 
-batch_size = 32
-device = torch.device("cuda:0")
+batch_size = 2
+device = torch.device(f"cuda:{args.gpu}")
 
 diagonal = []
 for ev, mult in zip(eigenvalue_list, multiplicity_list):
@@ -72,7 +83,7 @@ diagonal_tensor = torch.tensor(diagonal, dtype=torch.float32).to(device)
 #sys.exit(0)
 
 q = nn.Parameter(torch.randn(batch_size, v, v, device=device))
-lr = 1e-4
+lr = 1e-5
 partial_optimizer = partial(torch.optim.Adam, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
@@ -80,8 +91,10 @@ eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 qjq_target_vector = (diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)) / m
 qjq_target = torch.diag_embed(qjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
 
-num_steps = 1000000
+num_steps = 10000000
 check_interval = 1000
+
+min_srg_test = 65536
 
 t = tqdm(range(num_steps), dynamic_ncols=True)
 for step in t:
@@ -107,6 +120,7 @@ for step in t:
     loss_min_index = torch.argmin(loss_batch)
 
     t.set_postfix({
+        'min_srg_test': f'{min_srg_test}',
         'min_loss': f'{loss_batch[loss_min_index].item():.6f}',
         'orthogonal_loss': f'{orhogonal_loss[loss_min_index].item():.6f}',
         'target_loss': f'{target_loss[loss_min_index].item():.6f}',
@@ -115,13 +129,12 @@ for step in t:
 
     if step % check_interval == 0:
         with torch.no_grad():
-            print(adj_mat_hat[loss_min_index])
+            #print(adj_mat_hat[loss_min_index])
             round_adj_mat_hat = torch.round(torch.clamp(adj_mat_hat, 0, 1))
             srg_test = torch.matmul(round_adj_mat_hat, round_adj_mat_hat) + (m - l) * round_adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(round_adj_mat_hat)
             srg_test_batch = srg_test.abs().sum(dim=(1,2))
             min_index = torch.argmin(srg_test_batch)
             min_srg_test = srg_test_batch[min_index].item()
-            print(f"Step {step}: min_srg_test = {min_srg_test}")
             if min_srg_test == 0:
                 print("Found SRG!")
                 print(round_adj_mat_hat[min_index].to(torch.int8))

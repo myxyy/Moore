@@ -13,13 +13,14 @@ parser.add_argument("--batch_size", type=int, default=1, help="Batch size for tr
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the optimizer (default: %(default)f)")
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--range_penalty_weight", type=float, default=0.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--vertices", type=int, default=99, help="Number of vertices (default: %(default)d)")
 parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
-parser.add_argument("--name", type=str, default=None, choices=[None, "conway99", "hoffman_singleton", "moore57", "petersen"], help="Name of the SRG to find (default: %(default)s)")
-parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
-parser.add_argument("--check_interval", type=int, default=1000, help="Interval for checking progress (default: %(default)d)")
+parser.add_argument("--name", type=str, default=None, choices=[None, "conway99", "hoffman_singleton", "moore57", "petersen", "gewirtz"], help="Name of the SRG to find (default: %(default)s)")
+parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
+parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
+parser.add_argument("--binary_penalty_weight", type=float, default=0.1, help="Weight for the binary penalty loss component (default: %(default)f)")
 args = parser.parse_args()
 
 batch_size = args.batch_size
@@ -33,6 +34,7 @@ m = args.mu
 name = args.name
 noise_scale = args.noise_scale
 check_interval = args.check_interval
+binary_penalty_weight = args.binary_penalty_weight
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
 named_parameters = {
@@ -40,6 +42,8 @@ named_parameters = {
     "hoffman_singleton": (50, 0, 1),
     "moore57": (3250, 0, 1),
     "petersen": (10, 0, 1),
+    "gewirtz": (56, 0, 2),
+    "clebsch": (16, 0, 2),
 }
 
 if name is not None:
@@ -122,11 +126,14 @@ while True:
     #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
     adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
     adj_loss = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none').mean(dim=(1,2))
+
     over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
     under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
     range_penalty = over_one_penalty + under_zero_penalty
 
-    loss_batch = orhogonal_loss * orthogonal_weight + qjq_loss * qjq_weight + range_penalty * range_penalty_weight + adj_loss
+    binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0).mean(dim=(1,2))
+
+    loss_batch = orhogonal_loss * orthogonal_weight + qjq_loss * qjq_weight + range_penalty * range_penalty_weight + adj_loss + binary_penalty * binary_penalty_weight
     loss_batch_grad = torch.ones_like(loss_batch)
     loss_batch.backward(gradient=loss_batch_grad)
     optimizer.step()
@@ -140,6 +147,7 @@ while True:
         f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.3f}, '\
         f'qjq_loss: {qjq_loss[loss_min_index].item():.3f}, '\
         f'range_penalty: {range_penalty[loss_min_index].item():.3f}, '\
+        f'binary_penalty: {binary_penalty[loss_min_index].item():.3f}, '\
         f'adj_loss: {adj_loss[loss_min_index].item():.3f}', end='                    ', flush=True)
 
     step += 1

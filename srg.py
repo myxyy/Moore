@@ -13,12 +13,12 @@ parser.add_argument("--batch_size", type=int, default=1, help="Batch size for tr
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the optimizer (default: %(default)f)")
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--range_penalty_weight", type=float, default=0.0, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--range_penalty_weight", type=float, default=0.1, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--vertices", type=int, default=99, help="Number of vertices (default: %(default)d)")
 parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
 parser.add_argument("--name", type=str, default=None, choices=[None, "conway99", "hoffman_singleton", "moore57", "petersen", "gewirtz"], help="Name of the SRG to find (default: %(default)s)")
-parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
+parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--binary_penalty_weight", type=float, default=0.1, help="Weight for the binary penalty loss component (default: %(default)f)")
 args = parser.parse_args()
@@ -35,6 +35,13 @@ name = args.name
 noise_scale = args.noise_scale
 check_interval = args.check_interval
 binary_penalty_weight = args.binary_penalty_weight
+
+print(f"orthogonal_weight: {orthogonal_weight}")
+print(f"qjq_weight: {qjq_weight}")
+print(f"range_penalty_weight: {range_penalty_weight}")
+print(f"noise_scale: {noise_scale}")
+print(f"binary_penalty_weight: {binary_penalty_weight}")
+
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
 named_parameters = {
@@ -125,7 +132,7 @@ while True:
     #print(adj_mat_hat[0])
     #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
     adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
-    adj_loss = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none').mean(dim=(1,2))
+    adj_loss = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True), reduction='none').mean(dim=(1,2))
 
     over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
     under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
@@ -143,7 +150,7 @@ while True:
     print(f'\r'\
         f'step: {step}, '\
         f'min_srg_test: {min_srg_test}, '\
-        f'min_loss: {loss_batch[loss_min_index].item():.3f}, '\
+        f'min_loss: {loss_batch[loss_min_index].item():.6f}, '\
         f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.3f}, '\
         f'qjq_loss: {qjq_loss[loss_min_index].item():.3f}, '\
         f'range_penalty: {range_penalty[loss_min_index].item():.3f}, '\

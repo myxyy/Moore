@@ -13,15 +13,15 @@ parser.add_argument("--batch_size", type=int, default=1, help="Batch size for tr
 parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the optimizer (default: %(default)f)")
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--range_penalty_weight", type=float, default=0.1, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--vertices", type=int, default=99, help="Number of vertices (default: %(default)d)")
 parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
 parser.add_argument("--name", type=str, default=None, choices=[None, "conway99", "hoffman_singleton", "moore57", "petersen", "gewirtz"], help="Name of the SRG to find (default: %(default)s)")
 parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
-parser.add_argument("--binary_penalty_weight", type=float, default=0.1, help="Weight for the binary penalty loss component (default: %(default)f)")
-parser.add_argument("--diagonal_weight", type=float, default=1.0, help="Weight for the diagonal loss component (default: %(default)f)")
+parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
+parser.add_argument("--diagonal_weight", type=float, default=0.0, help="Weight for the diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 
 batch_size = args.batch_size
@@ -38,6 +38,7 @@ check_interval = args.check_interval
 binary_penalty_weight = args.binary_penalty_weight
 diagonal_weight = args.diagonal_weight
 
+print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
 print(f"qjq_weight: {qjq_weight}")
 print(f"range_penalty_weight: {range_penalty_weight}")
@@ -121,7 +122,7 @@ diagonal_tensor = torch.tensor(diagonal, dtype=torch.float32).to(device)
 #sys.exit(0)
 
 q = nn.Parameter(torch.randn(batch_size, v, v, device=device))
-partial_optimizer = partial(torch.optim.AdamW, lr=lr)
+partial_optimizer = partial(torch.optim.RMSprop, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 
@@ -145,7 +146,8 @@ while True:
     adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
     #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
     adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
-    adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
+    adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none')
+    #adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
     adj_loss_diag, adj_loss_off_diag = separate_diagonal_loss(adj_loss_raw)
     adj_loss = adj_loss_diag * diagonal_weight + adj_loss_off_diag
 

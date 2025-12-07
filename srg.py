@@ -146,8 +146,8 @@ while True:
     adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
     #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
     adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
-    adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none')
-    #adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
+    #adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none')
+    adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
     adj_loss_diag, adj_loss_off_diag = separate_diagonal_loss(adj_loss_raw)
     adj_loss = adj_loss_diag * diagonal_weight + adj_loss_off_diag
 

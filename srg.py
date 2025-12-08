@@ -7,6 +7,16 @@ import torch.nn.functional as F
 import sys
 import argparse
 
+named_parameters = {
+    "conway99": (99, 1, 2),
+    "hoffman_singleton": (50, 0, 1),
+    "moore57": (3250, 0, 1),
+    "petersen": (10, 0, 1),
+    "gewirtz": (56, 0, 2),
+    "clebsch": (16, 0, 2),
+    "shrikhande": (16, 2, 2),
+}
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpu", type=int, default=0, help="GPU device index (default: %(default)d)")
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
@@ -17,11 +27,11 @@ parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Wei
 parser.add_argument("--vertices", type=int, default=99, help="Number of vertices (default: %(default)d)")
 parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
-parser.add_argument("--name", type=str, default=None, choices=[None, "conway99", "hoffman_singleton", "moore57", "petersen", "gewirtz"], help="Name of the SRG to find (default: %(default)s)")
+parser.add_argument("--name", type=str, default=None, choices=[None] + list(named_parameters.keys()), help="Name of the SRG to find (default: %(default)s)")
 parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
-parser.add_argument("--diagonal_weight", type=float, default=0.0, help="Weight for the diagonal loss component (default: %(default)f)")
+parser.add_argument("--diagonal_weight", type=float, default=1.0, help="Weight for the diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 
 batch_size = args.batch_size
@@ -47,15 +57,6 @@ print(f"binary_penalty_weight: {binary_penalty_weight}")
 print(f"diagonal_weight: {diagonal_weight}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
-
-named_parameters = {
-    "conway99": (99, 1, 2),
-    "hoffman_singleton": (50, 0, 1),
-    "moore57": (3250, 0, 1),
-    "petersen": (10, 0, 1),
-    "gewirtz": (56, 0, 2),
-    "clebsch": (16, 0, 2),
-}
 
 if name is not None:
     v, l, m = named_parameters[args.name]
@@ -121,8 +122,8 @@ diagonal_tensor = torch.tensor(diagonal, dtype=torch.float32).to(device)
 
 #sys.exit(0)
 
-q = nn.Parameter(torch.randn(batch_size, v, v, device=device))
-partial_optimizer = partial(torch.optim.RMSprop, lr=lr)
+q = nn.Parameter(torch.randn(batch_size, v, v, device=device) * v ** -0.5)
+partial_optimizer = partial(torch.optim.AdamW, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 

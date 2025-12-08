@@ -8,13 +8,13 @@ import sys
 import argparse
 
 named_parameters = {
-    "conway99": (99, 1, 2),
-    "hoffman_singleton": (50, 0, 1),
-    "moore57": (3250, 0, 1),
-    "petersen": (10, 0, 1),
-    "gewirtz": (56, 0, 2),
-    "clebsch": (16, 0, 2),
-    "shrikhande": (16, 2, 2),
+    "conway99": (14, 1, 2),
+    "hoffman_singleton": (7, 0, 1),
+    "moore57": (57, 0, 1),
+    "petersen": (3, 0, 1),
+    "gewirtz": (10, 0, 2),
+    "clebsch": (5, 0, 2),
+    "shrikhande": (6, 2, 2),
 }
 
 parser = argparse.ArgumentParser()
@@ -24,7 +24,7 @@ parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for th
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
 parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
-parser.add_argument("--vertices", type=int, default=99, help="Number of vertices (default: %(default)d)")
+parser.add_argument("--degree", type=int, default=14, help="Degree of SRG (default: %(default)d)")
 parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
 parser.add_argument("--name", type=str, default=None, choices=[None] + list(named_parameters.keys()), help="Name of the SRG to find (default: %(default)s)")
@@ -39,7 +39,7 @@ lr = args.lr
 orthogonal_weight = args.orthogonal_weight
 qjq_weight = args.qjq_weight
 range_penalty_weight = args.range_penalty_weight
-v= args.vertices
+k = args.degree
 l= args.lambd
 m = args.mu
 name = args.name
@@ -59,20 +59,11 @@ print(f"diagonal_weight: {diagonal_weight}")
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
 if name is not None:
-    v, l, m = named_parameters[args.name]
+    k, l, m = named_parameters[args.name]
 
-b = m - l - 1
-c = m * (1 - v)
-discriminant = b * b - 4 * c
-sqrt_discriminant = math.sqrt(discriminant)
-if round(sqrt_discriminant) ** 2 != discriminant:
-    raise ValueError("Discriminant is not a perfect square.")
-sqrt_discriminant = round(sqrt_discriminant)
-
-if (-b + sqrt_discriminant) % 2 != 0:
-    raise ValueError("Roots are not integers.")
-
-k = (-b + sqrt_discriminant) // 2
+if k * (k - l - 1) % m != 0:
+    raise ValueError("SRG parameters are invalid: k*(k-l-1) is not divisible by m.")
+v = k * (k - l - 1) // m + k + 1
 print(f"v: {v}, k: {k}, l: {l}, m: {m}")
 
 d = (l - m) * (l - m) + 4 * (k - m)

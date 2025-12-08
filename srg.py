@@ -19,19 +19,24 @@ named_parameters = {
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gpu", type=int, default=0, help="GPU device index (default: %(default)d)")
-parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
-parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the optimizer (default: %(default)f)")
-parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
-parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
+
+parser.add_argument("--name", type=str, default=None, choices=[None] + list(named_parameters.keys()), help="Name of the SRG to find (default: %(default)s)")
 parser.add_argument("--degree", type=int, default=14, help="Degree of SRG (default: %(default)d)")
 parser.add_argument("--lmd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
-parser.add_argument("--name", type=str, default=None, choices=[None] + list(named_parameters.keys()), help="Name of the SRG to find (default: %(default)s)")
-parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
+
+parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
-parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
+
+parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for the optimizer (default: %(default)f)")
+parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
+
+parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
+parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
 parser.add_argument("--diagonal_weight", type=float, default=1.0, help="Weight for the diagonal loss component (default: %(default)f)")
+
+parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
 parser.add_argument("--regularity_weight", type=float, default=1.0, help="Weight for the regularity loss component (default: %(default)f)")
 parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
@@ -173,21 +178,6 @@ while True:
 
     loss_min_index = torch.argmin(loss_batch)
 
-    print(f'\r'\
-        f'step: {step}\n'\
-        f'min_srg_test: {min_srg_test}\n'\
-        f'min_loss: {loss_batch[loss_min_index].item():.6f}\n'\
-        f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.6f}\n'\
-        f'qjq_loss: {qjq_loss[loss_min_index].item():.6f}\n'\
-        f'range_penalty: {range_penalty[loss_min_index].item():.6f}\n'\
-        f'binary_penalty: {binary_penalty[loss_min_index].item():.6f}\n'\
-        f'regularity_loss: {regularity_loss[loss_min_index].item():.6f}\n'\
-        f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.6f}\n'\
-        f'adj_loss: {adj_loss[loss_min_index].item():.6f}\n'\
-        '\033[10A', end='')
-
-    step += 1
-
     if step % check_interval == 0:
         with torch.no_grad():
             #print(adj_mat_hat[loss_min_index])
@@ -201,3 +191,18 @@ while True:
                 print(round_adj_mat_hat[min_index].to(torch.int8))
                 torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), f"srg_v{v}_k{k}_l{l}_m{m}.pt")
                 break
+
+    print(f'\r'\
+        f'step: {step}\n'\
+        f'min_srg_test: {min_srg_test}\n'\
+        f'min_loss: {loss_batch[loss_min_index].item():.4f}\n'\
+        f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}\n'\
+        f'qjq_loss: {qjq_loss[loss_min_index].item():.4f}\n'\
+        f'range_penalty: {range_penalty[loss_min_index].item():.4f}\n'\
+        f'binary_penalty: {binary_penalty[loss_min_index].item():.4f}\n'\
+        f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}\n'\
+        f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}\n'\
+        f'adj_loss: {adj_loss[loss_min_index].item():.4f}\n'\
+        '\033[10A', end='')
+
+    step += 1

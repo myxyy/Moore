@@ -32,6 +32,8 @@ parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
 parser.add_argument("--diagonal_weight", type=float, default=1.0, help="Weight for the diagonal loss component (default: %(default)f)")
+parser.add_argument("--regularity_weight", type=float, default=1.0, help="Weight for the regularity loss component (default: %(default)f)")
+parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 
 batch_size = args.batch_size
@@ -47,6 +49,8 @@ noise_scale = args.noise_scale
 check_interval = args.check_interval
 binary_penalty_weight = args.binary_penalty_weight
 diagonal_weight = args.diagonal_weight
+regularity_weight = args.regularity_weight
+zero_diag_weight = args.zero_diag_weight
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -55,6 +59,8 @@ print(f"range_penalty_weight: {range_penalty_weight}")
 print(f"noise_scale: {noise_scale}")
 print(f"binary_penalty_weight: {binary_penalty_weight}")
 print(f"diagonal_weight: {diagonal_weight}")
+print(f"regularity_weight: {regularity_weight}")
+print(f"zero_diag_weight: {zero_diag_weight}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -89,7 +95,7 @@ multiplicity2 = ( (v - 1) + f ) // 2
 
 eigenvalue_list = [k, eigenvalue1, eigenvalue2]
 multiplicity_list = [1, multiplicity1, multiplicity2]
-print("Eigenvalues and their multiplicities:")
+#print("Eigenvalues and their multiplicities:")
 for ev, mult in zip(eigenvalue_list, multiplicity_list):
     print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
 
@@ -135,7 +141,7 @@ while True:
 
     adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
     #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
-    adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)
+    adj_lhs = (torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)) / m
     #adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none')
     adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
     adj_loss_diag, adj_loss_off_diag = separate_diagonal_loss(adj_loss_raw)
@@ -147,7 +153,20 @@ while True:
 
     binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0).mean(dim=(1,2))
 
-    loss_batch = orhogonal_loss * orthogonal_weight + qjq_loss * qjq_weight + range_penalty * range_penalty_weight + adj_loss + binary_penalty * binary_penalty_weight
+    row_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-1) / k, torch.ones_like(adj_mat_hat.sum(dim=-1)), reduction='none').mean(dim=1)
+    column_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-2) / k, torch.ones_like(adj_mat_hat.sum(dim=-2)), reduction='none').mean(dim=1)
+    regularity_loss = (row_regularity_loss + column_regularity_loss) / 2
+
+    zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
+
+    loss_batch =\
+        orhogonal_loss * orthogonal_weight + \
+        qjq_loss * qjq_weight + \
+        range_penalty * range_penalty_weight + \
+        binary_penalty * binary_penalty_weight + \
+        regularity_loss * regularity_weight + \
+        zero_diag_loss * zero_diag_weight + \
+        adj_loss
     loss_batch_grad = torch.ones_like(loss_batch)
     loss_batch.backward(gradient=loss_batch_grad)
     optimizer.step()
@@ -162,8 +181,10 @@ while True:
         f'qjq_loss: {qjq_loss[loss_min_index].item():.6f}\n'\
         f'range_penalty: {range_penalty[loss_min_index].item():.6f}\n'\
         f'binary_penalty: {binary_penalty[loss_min_index].item():.6f}\n'\
+        f'regularity_loss: {regularity_loss[loss_min_index].item():.6f}\n'\
+        f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.6f}\n'\
         f'adj_loss: {adj_loss[loss_min_index].item():.6f}\n'\
-        '\033[8A', end='')
+        '\033[10A', end='')
 
     step += 1
 

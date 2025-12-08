@@ -68,19 +68,19 @@ print(f"v: {v}, k: {k}, l: {l}, m: {m}")
 
 d = (l - m) * (l - m) + 4 * (k - m)
 sqrt_d = math.sqrt(d)
-if round(sqrt_d) ** 2 != d:
-    raise ValueError("d is not a perfect square.")
+if round(sqrt_d) ** 2 != d and 2 * k + (v - 1) * (l - m) != 0:
+    raise ValueError("Eigenvalue multiplicities are not integers.")
 
-sqrt_d = round(sqrt_d)
+# now round(sqrt_d) ** 2 == d or 2 * k + (v - 1) * (l - m) == 0
 
 eigenvalue1 = (l - m + sqrt_d) / 2
 eigenvalue2 = (l - m - sqrt_d) / 2
 
 e = (2 * k + (v - 1) * (l - m))
-if e % sqrt_d != 0:
+if round(sqrt_d) ** 2 == d and e % round(sqrt_d) != 0:
     raise ValueError("Eigenvalue multiplicities are not integers.")
 
-f = e // sqrt_d
+f = e // round(sqrt_d)
 if ((v - 1) - f) % 2 != 0:
     raise ValueError("Eigenvalue multiplicities are not integers.")
 
@@ -155,14 +155,15 @@ while True:
     loss_min_index = torch.argmin(loss_batch)
 
     print(f'\r'\
-        f'step: {step}, '\
-        f'min_srg_test: {min_srg_test}, '\
-        f'min_loss: {loss_batch[loss_min_index].item():.6f}, '\
-        f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.3f}, '\
-        f'qjq_loss: {qjq_loss[loss_min_index].item():.3f}, '\
-        f'range_penalty: {range_penalty[loss_min_index].item():.3f}, '\
-        f'binary_penalty: {binary_penalty[loss_min_index].item():.3f}, '\
-        f'adj_loss: {adj_loss[loss_min_index].item():.3f}', end='                    ', flush=True)
+        f'step: {step}\n'\
+        f'min_srg_test: {min_srg_test}\n'\
+        f'min_loss: {loss_batch[loss_min_index].item():.6f}\n'\
+        f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.6f}\n'\
+        f'qjq_loss: {qjq_loss[loss_min_index].item():.6f}\n'\
+        f'range_penalty: {range_penalty[loss_min_index].item():.6f}\n'\
+        f'binary_penalty: {binary_penalty[loss_min_index].item():.6f}\n'\
+        f'adj_loss: {adj_loss[loss_min_index].item():.6f}\n'\
+        '\033[8A', end='')
 
     step += 1
 

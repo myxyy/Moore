@@ -25,7 +25,7 @@ parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weigh
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
 parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--degree", type=int, default=14, help="Degree of SRG (default: %(default)d)")
-parser.add_argument("--lambd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
+parser.add_argument("--lmd", type=int, default=1, help="SRG parameter lambda (default: %(default)d)")
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
 parser.add_argument("--name", type=str, default=None, choices=[None] + list(named_parameters.keys()), help="Name of the SRG to find (default: %(default)s)")
 parser.add_argument("--noise_scale", type=float, default=0.1, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
@@ -40,7 +40,7 @@ orthogonal_weight = args.orthogonal_weight
 qjq_weight = args.qjq_weight
 range_penalty_weight = args.range_penalty_weight
 k = args.degree
-l= args.lambd
+l = args.lmd
 m = args.mu
 name = args.name
 noise_scale = args.noise_scale
@@ -72,11 +72,9 @@ if round(sqrt_d) ** 2 != d:
     raise ValueError("d is not a perfect square.")
 
 sqrt_d = round(sqrt_d)
-if (l -m + sqrt_d) % 2 != 0:
-    raise ValueError("Eigenvalues are not integers.")
 
-eigenvalue1 = (l - m + sqrt_d) // 2
-eigenvalue2 = (l - m - sqrt_d) // 2
+eigenvalue1 = (l - m + sqrt_d) / 2
+eigenvalue2 = (l - m - sqrt_d) / 2
 
 e = (2 * k + (v - 1) * (l - m))
 if e % sqrt_d != 0:
@@ -91,9 +89,9 @@ multiplicity2 = ( (v - 1) + f ) // 2
 
 eigenvalue_list = [k, eigenvalue1, eigenvalue2]
 multiplicity_list = [1, multiplicity1, multiplicity2]
-#print("Eigenvalues and their multiplicities:")
-#for ev, mult in zip(eigenvalue_list, multiplicity_list):
-#    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
+print("Eigenvalues and their multiplicities:")
+for ev, mult in zip(eigenvalue_list, multiplicity_list):
+    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
 
 def separate_diagonal_loss(loss_mat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     diag_elements = torch.diagonal(loss_mat, dim1=-2, dim2=-1)

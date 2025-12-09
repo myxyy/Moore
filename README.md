@@ -1,2 +1,3 @@
-### Degree 7 Moore graph
-python moore.py --degree 7 --batch_size 32
+### Example
+python srg.py --name hoffman_singleton --batch_size 256
+python srg.py --degree 3 --lmd 0 --mu 1 --batch_size 256

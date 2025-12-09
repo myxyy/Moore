@@ -133,6 +133,8 @@ qjq_target = torch.diag_embed(qjq_target_vector)[None, :, :].expand(batch_size, 
 min_srg_test = 65536
 
 step = 0
+is_info_printed = False
+
 while True:
     try:
         optimizer.zero_grad()
@@ -188,13 +190,15 @@ while True:
                 min_index = torch.argmin(srg_test_batch)
                 min_srg_test = srg_test_batch[min_index].item()
                 if min_srg_test == 0:
-                    print("\n\n\n\n\n\n\n\n\n\n")
                     print("Found SRG!")
                     #print(round_adj_mat_hat[min_index].to(torch.int8))
                     path = f"srg_v{v}_k{k}_l{l}_m{m}.pt"
                     torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), path)
                     print(f"Saved to {path}")
                     break
+
+        if is_info_printed:
+            print('\033[10A', end='')
 
         print(\
             f'step: {step}\n'\
@@ -207,10 +211,10 @@ while True:
             f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}                \n'\
             f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
             f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
-            '\033[10A', end='')
+            , end='')
+        is_info_printed = True
 
     except KeyboardInterrupt:
-        print("\n\n\n\n\n\n\n\n\n\n")
         print("Interrupted by user.")
         break
 

@@ -154,14 +154,15 @@ while True:
         adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat
 
         adj_lhs_diagonal = torch.diagonal(adj_lhs, dim1=-2, dim2=-1)
-        adj_diagonal_loss = F.mse_loss(adj_lhs_diagonal / k - 1, torch.randn_like(adj_lhs_diagonal) * noise_scale * adj_lhs_diagonal.std(dim=-1, keepdim=True).detach(), reduction='none').mean(dim=1)
+        adj_diagonal_loss = F.mse_loss(adj_lhs_diagonal / k - 1, torch.randn_like(adj_lhs_diagonal) * noise_scale * (adj_lhs_diagonal / k - 1).std(dim=-1, keepdim=True).detach(), reduction='none').mean(dim=1)
 
         adj_lhs_off_diagonal = adj_lhs - torch.diag_embed(adj_lhs_diagonal)
         adj_off_diagonal_loss = (
             (
                 adj_lhs_off_diagonal / m - torch.ones_like(adj_lhs_off_diagonal) + 
                 torch.randn_like(adj_lhs_off_diagonal) * noise_scale * adj_lhs_off_diagonal.std(dim=-1, keepdim=True).detach()
-            ) * (1 - torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1))).pow(2).sum(dim=(1,2)) / (v * (v - 1))
+            ) * (1 - eyes)
+        ).pow(2).sum(dim=(1,2)) / (v * (v - 1))
 
         adj_loss = adj_diagonal_loss * diagonal_weight + adj_off_diagonal_loss
 

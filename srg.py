@@ -130,6 +130,9 @@ eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 qjq_target_vector = (diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)) / m
 qjq_target = torch.diag_embed(qjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
 
+qjq_mask = torch.ones_like(qjq_target)
+qjq_mask[:, 0, 0] = 0.0
+
 min_srg_test = 65536
 
 step = 0
@@ -143,9 +146,9 @@ while True:
         orhogonal_loss = orhogonal_loss_diag * diagonal_weight + orhogonal_loss_off_diag
 
         qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
-        qjq_loss_raw = F.mse_loss(qjq, qjq_target, reduction='none')
-        qjq_loss_diag, qjq_loss_off_diag = separate_diagonal_loss(qjq_loss_raw)
-        qjq_loss = qjq_loss_diag * diagonal_weight + qjq_loss_off_diag
+        qjq_loss_a = F.mse_loss(qjq * qjq_mask, torch.zeros_like(qjq), reduction='none').mean(dim=(1,2))
+        qjq_loss_b = F.mse_loss(qjq[:,0,0] / qjq_target[:,0,0] - 1, torch.zeros_like(qjq[:,0,0]), reduction='none')
+        qjq_loss = qjq_loss_a + qjq_loss_b
 
         adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
         #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))

@@ -134,75 +134,84 @@ min_srg_test = 65536
 
 step = 0
 while True:
-    optimizer.zero_grad()
-    orhogonal_loss_raw = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none')
-    orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
-    orhogonal_loss = orhogonal_loss_diag * diagonal_weight + orhogonal_loss_off_diag
+    try:
+        optimizer.zero_grad()
+        orhogonal_loss_raw = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none')
+        orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
+        orhogonal_loss = orhogonal_loss_diag * diagonal_weight + orhogonal_loss_off_diag
 
-    qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
-    qjq_loss_raw = F.mse_loss(qjq, qjq_target, reduction='none')
-    qjq_loss_diag, qjq_loss_off_diag = separate_diagonal_loss(qjq_loss_raw)
-    qjq_loss = qjq_loss_diag * diagonal_weight + qjq_loss_off_diag
+        qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
+        qjq_loss_raw = F.mse_loss(qjq, qjq_target, reduction='none')
+        qjq_loss_diag, qjq_loss_off_diag = separate_diagonal_loss(qjq_loss_raw)
+        qjq_loss = qjq_loss_diag * diagonal_weight + qjq_loss_off_diag
 
-    adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
-    #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
-    adj_lhs = (torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)) / m
-    #adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none')
-    adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
-    adj_loss_diag, adj_loss_off_diag = separate_diagonal_loss(adj_loss_raw)
-    adj_loss = adj_loss_diag * diagonal_weight + adj_loss_off_diag
+        adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
+        #symmetric_loss = F.mse_loss(adj_mat_hat, adj_mat_hat.transpose(-2, -1), reduction='none').mean(dim=(1,2))
+        adj_lhs = (torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(adj_mat_hat)) / m
+        #adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale, reduction='none')
+        adj_loss_raw = F.mse_loss(adj_lhs, torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(1,2), keepdim=True).detach(), reduction='none')
+        adj_loss_diag, adj_loss_off_diag = separate_diagonal_loss(adj_loss_raw)
+        adj_loss = adj_loss_diag * diagonal_weight + adj_loss_off_diag
 
-    over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
-    under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
-    range_penalty = over_one_penalty + under_zero_penalty
+        over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
+        under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
+        range_penalty = over_one_penalty + under_zero_penalty
 
-    binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0).mean(dim=(1,2))
+        binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0).mean(dim=(1,2))
 
-    row_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-1) / k, torch.ones_like(adj_mat_hat.sum(dim=-1)), reduction='none').mean(dim=1)
-    column_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-2) / k, torch.ones_like(adj_mat_hat.sum(dim=-2)), reduction='none').mean(dim=1)
-    regularity_loss = (row_regularity_loss + column_regularity_loss) / 2
+        row_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-1) / k, torch.ones_like(adj_mat_hat.sum(dim=-1)), reduction='none').mean(dim=1)
+        column_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-2) / k, torch.ones_like(adj_mat_hat.sum(dim=-2)), reduction='none').mean(dim=1)
+        regularity_loss = (row_regularity_loss + column_regularity_loss) / 2
 
-    zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
+        zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
 
-    loss_batch =\
-        orhogonal_loss * orthogonal_weight + \
-        qjq_loss * qjq_weight + \
-        range_penalty * range_penalty_weight + \
-        binary_penalty * binary_penalty_weight + \
-        regularity_loss * regularity_weight + \
-        zero_diag_loss * zero_diag_weight + \
-        adj_loss
-    loss_batch_grad = torch.ones_like(loss_batch)
-    loss_batch.backward(gradient=loss_batch_grad)
-    optimizer.step()
+        loss_batch =\
+            orhogonal_loss * orthogonal_weight + \
+            qjq_loss * qjq_weight + \
+            range_penalty * range_penalty_weight + \
+            binary_penalty * binary_penalty_weight + \
+            regularity_loss * regularity_weight + \
+            zero_diag_loss * zero_diag_weight + \
+            adj_loss
+        loss_batch_grad = torch.ones_like(loss_batch)
+        loss_batch.backward(gradient=loss_batch_grad)
+        optimizer.step()
 
-    loss_min_index = torch.argmin(loss_batch)
+        loss_min_index = torch.argmin(loss_batch)
 
-    if step % check_interval == 0:
-        with torch.no_grad():
-            #print(adj_mat_hat[loss_min_index])
-            round_adj_mat_hat = torch.round(torch.clamp(adj_mat_hat, 0, 1))
-            srg_test = torch.matmul(round_adj_mat_hat, round_adj_mat_hat) + (m - l) * round_adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(round_adj_mat_hat)
-            srg_test_batch = srg_test.abs().sum(dim=(1,2))
-            min_index = torch.argmin(srg_test_batch)
-            min_srg_test = srg_test_batch[min_index].item()
-            if min_srg_test == 0:
-                print("Found SRG!")
-                print(round_adj_mat_hat[min_index].to(torch.int8))
-                torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), f"srg_v{v}_k{k}_l{l}_m{m}.pt")
-                break
+        if step % check_interval == 0:
+            with torch.no_grad():
+                #print(adj_mat_hat[loss_min_index])
+                round_adj_mat_hat = torch.round(torch.clamp(adj_mat_hat, 0, 1))
+                srg_test = torch.matmul(round_adj_mat_hat, round_adj_mat_hat) + (m - l) * round_adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(round_adj_mat_hat)
+                srg_test_batch = srg_test.abs().sum(dim=(1,2))
+                min_index = torch.argmin(srg_test_batch)
+                min_srg_test = srg_test_batch[min_index].item()
+                if min_srg_test == 0:
+                    print("\n\n\n\n\n\n\n\n\n\n")
+                    print("Found SRG!")
+                    #print(round_adj_mat_hat[min_index].to(torch.int8))
+                    path = f"srg_v{v}_k{k}_l{l}_m{m}.pt"
+                    torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), path)
+                    print(f"Saved to {path}")
+                    break
 
-    print(f'\r'\
-        f'step: {step}\n'\
-        f'min_srg_test: {min_srg_test}\n'\
-        f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
-        f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
-        f'qjq_loss: {qjq_loss[loss_min_index].item():.4f}                \n'\
-        f'range_penalty: {range_penalty[loss_min_index].item():.4f}                \n'\
-        f'binary_penalty: {binary_penalty[loss_min_index].item():.4f}                \n'\
-        f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}                \n'\
-        f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
-        f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
-        '\033[10A', end='')
+        print(\
+            f'step: {step}\n'\
+            f'min_srg_test: {min_srg_test}\n'\
+            f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
+            f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
+            f'qjq_loss: {qjq_loss[loss_min_index].item():.4f}                \n'\
+            f'range_penalty: {range_penalty[loss_min_index].item():.4f}                \n'\
+            f'binary_penalty: {binary_penalty[loss_min_index].item():.4f}                \n'\
+            f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}                \n'\
+            f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
+            f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
+            '\033[10A', end='')
+
+    except KeyboardInterrupt:
+        print("\n\n\n\n\n\n\n\n\n\n")
+        print("Interrupted by user.")
+        break
 
     step += 1

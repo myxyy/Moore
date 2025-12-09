@@ -33,7 +33,7 @@ parser.add_argument("--noise_scale", type=float, default=0.2, help="Scale of the
 
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--diagonal_weight", type=float, default=0.1, help="Weight for the diagonal loss component (default: %(default)f)")
+parser.add_argument("--diagonal_weight", type=float, default=0.01, help="Weight for the diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
@@ -146,7 +146,7 @@ while True:
         orhogonal_loss = orhogonal_loss_diag * diagonal_weight + orhogonal_loss_off_diag
 
         qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
-        qjq_loss_a = F.mse_loss(qjq * qjq_mask, torch.zeros_like(qjq), reduction='none').mean(dim=(1,2))
+        qjq_loss_a = F.mse_loss(qjq * qjq_mask - qjq_target * qjq_mask, torch.zeros_like(qjq), reduction='none').mean(dim=(1,2))
         qjq_loss_b = F.mse_loss(qjq[:,0,0] / qjq_target[:,0,0] - 1, torch.zeros_like(qjq[:,0,0]), reduction='none')
         qjq_loss = qjq_loss_a + qjq_loss_b
 
@@ -186,8 +186,8 @@ while True:
 
         if step % check_interval == 0:
             with torch.no_grad():
-                #print(adj_mat_hat[loss_min_index])
-                round_adj_mat_hat = torch.round(torch.clamp(adj_mat_hat, 0, 1))
+                adj_mat_hat_for_check = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
+                round_adj_mat_hat = torch.round(torch.clamp(adj_mat_hat_for_check, 0, 1))
                 srg_test = torch.matmul(round_adj_mat_hat, round_adj_mat_hat) + (m - l) * round_adj_mat_hat + (m - k) * torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1) - m * torch.ones_like(round_adj_mat_hat)
                 srg_test_batch = srg_test.abs().sum(dim=(1,2))
                 min_index = torch.argmin(srg_test_batch)

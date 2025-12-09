@@ -35,9 +35,9 @@ parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weigh
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
 parser.add_argument("--diagonal_weight", type=float, default=0.01, help="Weight for the diagonal loss component (default: %(default)f)")
 
-parser.add_argument("--range_penalty_weight", type=float, default=1.0, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
-parser.add_argument("--regularity_weight", type=float, default=1.0, help="Weight for the regularity loss component (default: %(default)f)")
+parser.add_argument("--regularity_weight", type=float, default=0.1, help="Weight for the regularity loss component (default: %(default)f)")
 parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 

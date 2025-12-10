@@ -197,10 +197,7 @@ while True:
                     print(f"Saved to {path}")
                     break
 
-        if is_info_printed:
-            print('\033[10A', end='')
-
-        print(\
+        info = \
             f'step: {step}\n'\
             f'min_srg_test: {min_srg_test}\n'\
             f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
@@ -211,7 +208,11 @@ while True:
             f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}                \n'\
             f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
             f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
-            , end='', flush=True)
+
+        if is_info_printed:
+            info = '\033[10A' + info
+
+        print(info, end='', flush=True)
         is_info_printed = True
 
     except KeyboardInterrupt:

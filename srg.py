@@ -15,6 +15,7 @@ named_parameters = {
     "gewirtz": (10, 0, 2),
     "clebsch": (5, 0, 2),
     "shrikhande": (6, 2, 2),
+    "benchmark0": (16, 9, 12),
 }
 
 parser = argparse.ArgumentParser()
@@ -27,16 +28,17 @@ parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default
 
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
+parser.add_argument("--annealing_interval_multiplier", type=float, default=2.0, help="Multiplier for annealing interval (default: %(default)d)")
 
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer (default: %(default)f)")
-parser.add_argument("--noise_scale", type=float, default=0.2, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
+parser.add_argument("--noise_scale", type=float, default=0.01, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
 parser.add_argument("--diagonal_weight", type=float, default=0.01, help="Weight for the diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
-parser.add_argument("--binary_penalty_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
+parser.add_argument("--binary_penalty_weight", type=float, default=10.0, help="Weight for the binary penalty loss component (default: %(default)f)")
 parser.add_argument("--regularity_weight", type=float, default=0.1, help="Weight for the regularity loss component (default: %(default)f)")
 parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
@@ -56,6 +58,7 @@ binary_penalty_weight = args.binary_penalty_weight
 diagonal_weight = args.diagonal_weight
 regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
+annealing_interval_multiplier = args.annealing_interval_multiplier
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -137,6 +140,9 @@ min_srg_test = 65536
 step = 0
 is_info_printed = False
 
+annealing_interval = 1
+annealing_step = 0
+
 while True:
     try:
         optimizer.zero_grad()
@@ -161,7 +167,12 @@ while True:
         under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
         range_penalty = over_one_penalty + under_zero_penalty
 
-        binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0).mean(dim=(1,2))
+        annealing_ratio = annealing_step / annealing_interval
+        #annealing_ratio = annealing_ratio * annealing_ratio * (3 - 2 * annealing_ratio)  # smoothstep
+        binary_penalty_mask = (torch.rand(adj_mat_hat.shape, device=device) < annealing_ratio).float()
+        binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0)
+        binary_penalty_loss = (binary_penalty * binary_penalty_mask).mean(dim=(1,2))
+        binary_penalty = binary_penalty.mean(dim=(1,2))
 
         row_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-1), k * torch.ones_like(adj_mat_hat.sum(dim=-1)), reduction='none').mean(dim=1)
         column_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-2), k * torch.ones_like(adj_mat_hat.sum(dim=-2)), reduction='none').mean(dim=1)
@@ -173,7 +184,7 @@ while True:
             orhogonal_loss * orthogonal_weight + \
             qjq_loss * qjq_weight + \
             range_penalty * range_penalty_weight + \
-            binary_penalty * binary_penalty_weight + \
+            binary_penalty_loss * binary_penalty_weight + \
             regularity_loss * regularity_weight + \
             zero_diag_loss * zero_diag_weight + \
             adj_loss
@@ -201,6 +212,7 @@ while True:
 
         info = \
             f'step: {step}                \n'\
+            f'annealing_step: {annealing_step}/{annealing_interval}                \n'\
             f'min_srg_test: {min_srg_test}                \n'\
             f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
             f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
@@ -212,13 +224,18 @@ while True:
             f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
 
         if is_info_printed:
-            info = '\033[10A' + info
+            info = '\033[11A' + info
 
         print(info, end='', flush=True)
         is_info_printed = True
+
+        step += 1
+        annealing_step += 1
+        if annealing_step >= annealing_interval:
+            annealing_step = 0
+            annealing_interval = int(math.ceil(annealing_interval * annealing_interval_multiplier))
 
     except KeyboardInterrupt:
         print("Interrupted by user.")
         break
 
-    step += 1

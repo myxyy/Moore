@@ -101,8 +101,10 @@ multiplicity2 = ( (v - 1) + f ) // 2
 eigenvalue_list = [k, eigenvalue1, eigenvalue2]
 multiplicity_list = [1, multiplicity1, multiplicity2]
 #print("Eigenvalues and their multiplicities:")
-for ev, mult in zip(eigenvalue_list, multiplicity_list):
-    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
+#for ev, mult in zip(eigenvalue_list, multiplicity_list):
+#    print(f"Eigenvalue: {ev}, Multiplicity: {mult}")
+print(f"Eigenvalues: {eigenvalue_list}")
+print(f"Multiplicities: {multiplicity_list}")
 
 def separate_diagonal_loss(loss_mat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     diag_elements = torch.diagonal(loss_mat, dim1=-2, dim2=-1)
@@ -198,8 +200,8 @@ while True:
                     break
 
         info = \
-            f'step: {step}\n'\
-            f'min_srg_test: {min_srg_test}\n'\
+            f'step: {step}                \n'\
+            f'min_srg_test: {min_srg_test}                \n'\
             f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
             f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
             f'qjq_loss: {qjq_loss[loss_min_index].item():.4f}                \n'\

@@ -28,7 +28,8 @@ parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default
 
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
-parser.add_argument("--annealing_interval_multiplier", type=float, default=1.2, help="Multiplier for annealing interval (default: %(default)d)")
+parser.add_argument("--annealing_interval_multiplier", type=float, default=1.05, help="Multiplier for annealing interval (default: %(default)d)")
+parser.add_argument("--annealing_easing_exponent", type=float, default=1.0, help="Easing exponent for annealing (default: %(default)f)")
 
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer (default: %(default)f)")
 parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
@@ -59,6 +60,7 @@ diagonal_weight = args.diagonal_weight
 regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
 annealing_interval_multiplier = args.annealing_interval_multiplier
+annealing_easing_exponent = args.annealing_easing_exponent
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -168,7 +170,7 @@ while True:
         range_penalty = over_one_penalty + under_zero_penalty
 
         annealing_ratio = annealing_step / annealing_interval
-        #annealing_ratio = annealing_ratio * annealing_ratio * (3 - 2 * annealing_ratio)  # smoothstep
+        annealing_ratio = annealing_ratio ** annealing_easing_exponent
         binary_penalty_mask = (torch.rand(adj_mat_hat.shape, device=device) < annealing_ratio).float()
         binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0)
         binary_penalty_loss = (binary_penalty * binary_penalty_mask).mean(dim=(1,2))
@@ -212,7 +214,7 @@ while True:
 
         info = \
             f'step: {step}                \n'\
-            f'annealing_step: {annealing_step}/{annealing_interval}                \n'\
+            f'annealing_ratio:step: {annealing_ratio:.4f}:{annealing_step}/{annealing_interval}                \n'\
             f'min_srg_test: {min_srg_test}                \n'\
             f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
             f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\

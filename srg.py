@@ -36,7 +36,9 @@ parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the
 
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--diagonal_weight", type=float, default=1e-3, help="Weight for the diagonal loss component (default: %(default)f)")
+parser.add_argument("--orthogonal_diagonal_weight", type=float, default=10.0, help="Weight for the orthogonal diagonal loss component (default: %(default)f)")
+parser.add_argument("--qjq_diagonal_weight", type=float, default=1, help="Weight for the qjq diagonal loss component (default: %(default)f)")
+parser.add_argument("--adj_diagonal_weight", type=float, default=1e-3, help="Weight for the adj diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--binary_penalty_weight", type=float, default=10.0, help="Weight for the binary penalty loss component (default: %(default)f)")
@@ -56,7 +58,9 @@ name = args.name
 noise_scale = args.noise_scale
 check_interval = args.check_interval
 binary_penalty_weight = args.binary_penalty_weight
-diagonal_weight = args.diagonal_weight
+orthogonal_diagonal_weight = args.orthogonal_diagonal_weight
+qjq_diagonal_weight = args.qjq_diagonal_weight
+adj_diagonal_weight = args.adj_diagonal_weight
 regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
 annealing_interval_multiplier = args.annealing_interval_multiplier
@@ -68,7 +72,9 @@ print(f"qjq_weight: {qjq_weight}")
 print(f"range_penalty_weight: {range_penalty_weight}")
 print(f"noise_scale: {noise_scale}")
 print(f"binary_penalty_weight: {binary_penalty_weight}")
-print(f"diagonal_weight: {diagonal_weight}")
+print(f"orthogonal_diagonal_weight: {orthogonal_diagonal_weight}")
+print(f"qjq_diagonal_weight: {qjq_diagonal_weight}")
+print(f"adj_diagonal_weight: {adj_diagonal_weight}")
 print(f"regularity_weight: {regularity_weight}")
 print(f"zero_diag_weight: {zero_diag_weight}")
 
@@ -134,7 +140,7 @@ partial_optimizer = partial(torch.optim.AdamW, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 
-qjq_target_vector = (diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)) / m
+qjq_target_vector = diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)
 qjq_target = torch.diag_embed(qjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
 
 min_srg_test = 65536
@@ -150,12 +156,12 @@ while True:
         optimizer.zero_grad()
         orhogonal_loss_raw = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none')
         orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
-        orhogonal_loss = orhogonal_loss_diag * diagonal_weight + orhogonal_loss_off_diag
+        orhogonal_loss = orhogonal_loss_diag * orthogonal_diagonal_weight + orhogonal_loss_off_diag
 
-        qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
+        qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q)) * m
         qjq_loss_raw = F.mse_loss(qjq, qjq_target, reduction='none')
         qjq_diag_loss, qjq_off_diag_loss = separate_diagonal_loss(qjq_loss_raw)
-        qjq_loss = qjq_diag_loss * diagonal_weight + qjq_off_diag_loss
+        qjq_loss = qjq_diag_loss * qjq_diagonal_weight + qjq_off_diag_loss
 
         adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
         adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat
@@ -163,7 +169,7 @@ while True:
         noise = torch.randn_like(adj_lhs) * noise_scale * adj_diff.std(dim=(-2, -1), keepdim=True).detach()
         adj_loss_raw = F.mse_loss(adj_lhs, (k - m) * eyes + m * torch.ones_like(adj_mat_hat) + noise, reduction='none')
         adj_diagonal_loss, adj_off_diagonal_loss = separate_diagonal_loss(adj_loss_raw)
-        adj_loss = adj_diagonal_loss * diagonal_weight + adj_off_diagonal_loss
+        adj_loss = adj_diagonal_loss * adj_diagonal_weight + adj_off_diagonal_loss
 
         over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
         under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))

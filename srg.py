@@ -27,7 +27,7 @@ parser.add_argument("--lmd", type=int, default=1, help="SRG parameter lambda (de
 parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default: %(default)d)")
 
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
-parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
+parser.add_argument("--check_interval", type=int, default=10, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--annealing_interval_multiplier", type=float, default=1.05, help="Multiplier for annealing interval (default: %(default)d)")
 parser.add_argument("--annealing_easing_exponent", type=float, default=1.0, help="Easing exponent for annealing (default: %(default)f)")
 
@@ -36,7 +36,7 @@ parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the
 
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
-parser.add_argument("--diagonal_weight", type=float, default=0.01, help="Weight for the diagonal loss component (default: %(default)f)")
+parser.add_argument("--diagonal_weight", type=float, default=1e-3, help="Weight for the diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--binary_penalty_weight", type=float, default=10.0, help="Weight for the binary penalty loss component (default: %(default)f)")
@@ -176,8 +176,8 @@ while True:
         binary_penalty_loss = (binary_penalty * binary_penalty_mask).mean(dim=(1,2))
         binary_penalty = binary_penalty.mean(dim=(1,2))
 
-        row_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-1), k * torch.ones_like(adj_mat_hat.sum(dim=-1)), reduction='none').mean(dim=1)
-        column_regularity_loss = F.mse_loss(adj_mat_hat.sum(dim=-2), k * torch.ones_like(adj_mat_hat.sum(dim=-2)), reduction='none').mean(dim=1)
+        row_regularity_loss = adj_mat_hat.sum(dim=-1).var(dim=1, correction=0)
+        column_regularity_loss = adj_mat_hat.sum(dim=-2).var(dim=1, correction=0)
         regularity_loss = (row_regularity_loss + column_regularity_loss) / 2
 
         zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)

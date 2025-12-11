@@ -28,10 +28,10 @@ parser.add_argument("--mu", type=int, default=2, help="SRG parameter mu (default
 
 parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training (default: %(default)d)")
 parser.add_argument("--check_interval", type=int, default=100, help="Interval for checking progress (default: %(default)d)")
-parser.add_argument("--annealing_interval_multiplier", type=float, default=2.0, help="Multiplier for annealing interval (default: %(default)d)")
+parser.add_argument("--annealing_interval_multiplier", type=float, default=1.2, help="Multiplier for annealing interval (default: %(default)d)")
 
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer (default: %(default)f)")
-parser.add_argument("--noise_scale", type=float, default=0.01, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
+parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
 parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")

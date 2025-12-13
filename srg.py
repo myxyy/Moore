@@ -30,7 +30,7 @@ parser.add_argument("--batch_size", type=int, default=1, help="Batch size for tr
 parser.add_argument("--check_interval", type=int, default=10, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--annealing_interval_multiplier", type=float, default=1.05, help="Multiplier for annealing interval (default: %(default)d)")
 parser.add_argument("--annealing_easing_exponent", type=float, default=1.0, help="Easing exponent for annealing (default: %(default)f)")
-parser.add_argument("--annealing_minimum_ratio", type=float, default=0.5, help="Minimum ratio for annealing (default: %(default)f)")
+parser.add_argument("--annealing_minimum_ratio", type=float, default=0.2, help="Minimum ratio for annealing (default: %(default)f)")
 
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer (default: %(default)f)")
 parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
@@ -169,7 +169,8 @@ while True:
         qjq_diag_loss, qjq_off_diag_loss = separate_diagonal_loss(qjq_loss_raw)
         qjq_loss = qjq_diag_loss * qjq_diagonal_weight + qjq_off_diag_loss
 
-        adj_mat_hat = torch.matmul(q, torch.matmul(torch.diag_embed(diagonal_tensor), q.transpose(-2, -1)))
+        d = torch.diag_embed(diagonal_tensor)
+        adj_mat_hat = torch.matmul(q, torch.matmul(d, q.transpose(-2, -1)))
         adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat
         adj_diff = adj_lhs - ( (k - m) * eyes + m * torch.ones_like(adj_mat_hat) )
         noise = torch.randn_like(adj_lhs) * noise_scale * adj_diff.std(dim=(-2, -1), keepdim=True).detach()
@@ -177,29 +178,29 @@ while True:
         adj_diagonal_loss, adj_off_diagonal_loss = separate_diagonal_loss(adj_loss_raw)
         adj_loss = adj_diagonal_loss * adj_diagonal_weight + adj_off_diagonal_loss
 
-        over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
-        under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
-        range_penalty = over_one_penalty + under_zero_penalty
 
         annealing_ratio = annealing_step / annealing_interval
         annealing_ratio = annealing_ratio ** annealing_easing_exponent
         annealing_ratio = annealing_minimum_ratio + (1.0 - annealing_minimum_ratio) * annealing_ratio
         binary_penalty_mask = (torch.rand(adj_mat_hat.shape, device=device) < annealing_ratio).float()
         binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0)
-        binary_penalty_loss = (binary_penalty * binary_penalty_mask).mean(dim=(1,2))
-        binary_penalty = binary_penalty.mean(dim=(1,2))
 
-        row_regularity_loss = adj_mat_hat.sum(dim=-1).var(dim=1, correction=0)
-        column_regularity_loss = adj_mat_hat.sum(dim=-2).var(dim=1, correction=0)
-        regularity_loss = (row_regularity_loss + column_regularity_loss) / 2
+        over_one_penalty = F.relu(adj_mat_hat - 1)
+        under_zero_penalty = F.relu(-adj_mat_hat)
+        range_penalty = over_one_penalty + under_zero_penalty
+
+        binary_range_penalty_loss = ((binary_penalty * binary_penalty_weight + range_penalty * range_penalty_weight)* binary_penalty_mask).mean(dim=(1,2))
+        binary_penalty = binary_penalty.mean(dim=(1,2))
+        range_penalty = range_penalty.mean(dim=(1,2))
+
+        regularity_loss = F.mse_loss(torch.matmul(d, qjq), torch.matmul(qjq, d), reduction='none').mean(dim=(1,2))
 
         zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
 
         loss_batch =\
             orhogonal_loss * orthogonal_weight + \
             qjq_loss * qjq_weight + \
-            range_penalty * range_penalty_weight + \
-            binary_penalty_loss * binary_penalty_weight + \
+            binary_range_penalty_loss + \
             regularity_loss * regularity_weight + \
             zero_diag_loss * zero_diag_weight + \
             adj_loss
@@ -217,13 +218,6 @@ while True:
                 srg_test_batch = srg_test.abs().sum(dim=(1,2))
                 min_index = torch.argmin(srg_test_batch)
                 min_srg_test = srg_test_batch[min_index].item()
-                if min_srg_test == 0:
-                    print("Found SRG!")
-                    #print(round_adj_mat_hat[min_index].to(torch.int8))
-                    path = f"srg_v{v}_k{k}_l{l}_m{m}.pt"
-                    torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), path)
-                    print(f"Saved to {path}")
-                    break
 
         info = \
             f'step: {step}                \n'\
@@ -240,9 +234,16 @@ while True:
 
         if is_info_printed:
             info = '\033[11A' + info
-
         print(info, end='', flush=True)
         is_info_printed = True
+
+        if min_srg_test == 0:
+            print("Found SRG!")
+            #print(round_adj_mat_hat[min_index].to(torch.int8))
+            path = f"srg_v{v}_k{k}_l{l}_m{m}.pt"
+            torch.save(round_adj_mat_hat[min_index].to(torch.int8).cpu(), path)
+            print(f"Saved to {path}")
+            break
 
         step += 1
         annealing_step += 1

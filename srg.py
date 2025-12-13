@@ -146,8 +146,8 @@ partial_optimizer = partial(torch.optim.AdamW, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 
-qjq_target_vector = diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)
-qjq_target = torch.diag_embed(qjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
+mqjq_target_vector = diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)
+mqjq_target = torch.diag_embed(mqjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
 
 min_srg_test = 65536
 
@@ -164,20 +164,18 @@ while True:
         orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
         orhogonal_loss = orhogonal_loss_diag * orthogonal_diagonal_weight + orhogonal_loss_off_diag
 
-        qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q)) * m
-        qjq_loss_raw = F.mse_loss(qjq, qjq_target, reduction='none')
+        qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
+        qjq_loss_raw = F.mse_loss(m * qjq, mqjq_target, reduction='none')
         qjq_diag_loss, qjq_off_diag_loss = separate_diagonal_loss(qjq_loss_raw)
         qjq_loss = qjq_diag_loss * qjq_diagonal_weight + qjq_off_diag_loss
 
         d = torch.diag_embed(diagonal_tensor)
         adj_mat_hat = torch.matmul(q, torch.matmul(d, q.transpose(-2, -1)))
-        adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat
-        adj_diff = adj_lhs - ( (k - m) * eyes + m * torch.ones_like(adj_mat_hat) )
-        noise = torch.randn_like(adj_lhs) * noise_scale * adj_diff.std(dim=(-2, -1), keepdim=True).detach()
-        adj_loss_raw = F.mse_loss(adj_lhs, (k - m) * eyes + m * torch.ones_like(adj_mat_hat) + noise, reduction='none')
+        adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * eyes - m * torch.ones_like(adj_mat_hat)
+        noise = torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(-2, -1), keepdim=True).detach()
+        adj_loss_raw = F.mse_loss(adj_lhs, noise, reduction='none')
         adj_diagonal_loss, adj_off_diagonal_loss = separate_diagonal_loss(adj_loss_raw)
         adj_loss = adj_diagonal_loss * adj_diagonal_weight + adj_off_diagonal_loss
-
 
         annealing_ratio = annealing_step / annealing_interval
         annealing_ratio = annealing_ratio ** annealing_easing_exponent

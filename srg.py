@@ -30,6 +30,7 @@ parser.add_argument("--batch_size", type=int, default=1, help="Batch size for tr
 parser.add_argument("--check_interval", type=int, default=10, help="Interval for checking progress (default: %(default)d)")
 parser.add_argument("--annealing_interval_multiplier", type=float, default=1.05, help="Multiplier for annealing interval (default: %(default)d)")
 parser.add_argument("--annealing_easing_exponent", type=float, default=1.0, help="Easing exponent for annealing (default: %(default)f)")
+parser.add_argument("--annealing_minimum_ratio", type=float, default=0.5, help="Minimum ratio for annealing (default: %(default)f)")
 
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for the optimizer (default: %(default)f)")
 parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
@@ -65,6 +66,7 @@ regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
 annealing_interval_multiplier = args.annealing_interval_multiplier
 annealing_easing_exponent = args.annealing_easing_exponent
+annealing_minimum_ratio = args.annealing_minimum_ratio
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -77,6 +79,10 @@ print(f"qjq_diagonal_weight: {qjq_diagonal_weight}")
 print(f"adj_diagonal_weight: {adj_diagonal_weight}")
 print(f"regularity_weight: {regularity_weight}")
 print(f"zero_diag_weight: {zero_diag_weight}")
+print(f"batch_size: {batch_size}")
+print(f"annealing_interval_multiplier: {annealing_interval_multiplier}")
+print(f"annealing_easing_exponent: {annealing_easing_exponent}")
+print(f"annealing_minimum_ratio: {annealing_minimum_ratio}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -177,6 +183,7 @@ while True:
 
         annealing_ratio = annealing_step / annealing_interval
         annealing_ratio = annealing_ratio ** annealing_easing_exponent
+        annealing_ratio = annealing_minimum_ratio + (1.0 - annealing_minimum_ratio) * annealing_ratio
         binary_penalty_mask = (torch.rand(adj_mat_hat.shape, device=device) < annealing_ratio).float()
         binary_penalty = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0)
         binary_penalty_loss = (binary_penalty * binary_penalty_mask).mean(dim=(1,2))

@@ -33,9 +33,7 @@ parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for th
 parser.add_argument("--noise_scale", type=float, default=0.0, help="Scale of the noise added to the adjacency matrix loss (default: %(default)f)")
 
 parser.add_argument("--orthogonal_weight", type=float, default=10.0, help="Weight for the orthogonal loss component (default: %(default)f)")
-parser.add_argument("--qjq_weight", type=float, default=10.0, help="Weight for the qjq loss component (default: %(default)f)")
 parser.add_argument("--orthogonal_diagonal_weight", type=float, default=10.0, help="Weight for the orthogonal diagonal loss component (default: %(default)f)")
-parser.add_argument("--qjq_diagonal_weight", type=float, default=1, help="Weight for the qjq diagonal loss component (default: %(default)f)")
 parser.add_argument("--adj_diagonal_weight", type=float, default=1e-3, help="Weight for the adj diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=100.0, help="Weight for the range penalty loss component (default: %(default)f)")
@@ -46,7 +44,6 @@ args = parser.parse_args()
 batch_size = args.batch_size
 lr = args.lr
 orthogonal_weight = args.orthogonal_weight
-qjq_weight = args.qjq_weight
 range_penalty_weight = args.range_penalty_weight
 k = args.degree
 l = args.lmd
@@ -55,18 +52,15 @@ name = args.name
 noise_scale = args.noise_scale
 check_interval = args.check_interval
 orthogonal_diagonal_weight = args.orthogonal_diagonal_weight
-qjq_diagonal_weight = args.qjq_diagonal_weight
 adj_diagonal_weight = args.adj_diagonal_weight
 regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
-print(f"qjq_weight: {qjq_weight}")
 print(f"range_penalty_weight: {range_penalty_weight}")
 print(f"noise_scale: {noise_scale}")
 print(f"orthogonal_diagonal_weight: {orthogonal_diagonal_weight}")
-print(f"qjq_diagonal_weight: {qjq_diagonal_weight}")
 print(f"adj_diagonal_weight: {adj_diagonal_weight}")
 print(f"regularity_weight: {regularity_weight}")
 print(f"zero_diag_weight: {zero_diag_weight}")
@@ -134,9 +128,6 @@ partial_optimizer = partial(torch.optim.AdamW, lr=lr)
 optimizer = partial_optimizer([q])
 eyes = torch.eye(v).to(device)[None, :, :].expand(batch_size, -1, -1).to(device)
 
-mqjq_target_vector = diagonal_tensor * diagonal_tensor + (m - l) * diagonal_tensor + (m - k) * torch.ones_like(diagonal_tensor)
-mqjq_target = torch.diag_embed(mqjq_target_vector)[None, :, :].expand(batch_size, -1, -1).to(device)
-
 min_srg_test = 65536
 
 step = 0
@@ -145,18 +136,13 @@ is_info_printed = False
 while True:
     try:
         optimizer.zero_grad()
+        with torch.no_grad():   
+            q[:,:,0] = v ** -0.5
         d = torch.diag_embed(diagonal_tensor)
 
         orhogonal_loss_raw = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none')
         orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
         orhogonal_loss = orhogonal_loss_diag * orthogonal_diagonal_weight + orhogonal_loss_off_diag
-
-        qjq = torch.matmul(q.transpose(-2, -1), torch.matmul(torch.ones_like(q), q))
-        qjq_loss_raw = F.mse_loss(m * qjq, mqjq_target, reduction='none')
-        qjq_diag_loss, qjq_off_diag_loss = separate_diagonal_loss(qjq_loss_raw)
-        qjq_loss = qjq_diag_loss * qjq_diagonal_weight + qjq_off_diag_loss
-
-        regularity_loss = F.mse_loss(torch.matmul(d, qjq), torch.matmul(qjq, d), reduction='none').mean(dim=(1,2))
 
         adj_mat_hat = torch.matmul(q, torch.matmul(d, q.transpose(-2, -1)))
         adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * eyes - m * torch.ones_like(adj_mat_hat)
@@ -173,9 +159,7 @@ while True:
 
         loss_batch =\
             orhogonal_loss * orthogonal_weight + \
-            qjq_loss * qjq_weight + \
             range_penalty * range_penalty_weight + \
-            regularity_loss * regularity_weight + \
             zero_diag_loss * zero_diag_weight + \
             adj_loss
         loss_batch_grad = torch.ones_like(loss_batch)
@@ -198,14 +182,12 @@ while True:
             f'min_srg_test: {min_srg_test}                \n'\
             f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
             f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
-            f'qjq_loss: {qjq_loss[loss_min_index].item():.4f}                \n'\
             f'range_penalty: {range_penalty[loss_min_index].item():.4f}                \n'\
-            f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}                \n'\
             f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
             f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
 
         if is_info_printed:
-            info = '\033[9A' + info
+            info = '\033[7A' + info
         print(info, end='', flush=True)
         is_info_printed = True
 

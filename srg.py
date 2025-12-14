@@ -37,7 +37,6 @@ parser.add_argument("--orthogonal_diagonal_weight", type=float, default=10.0, he
 parser.add_argument("--adj_diagonal_weight", type=float, default=1e-3, help="Weight for the adj diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=100.0, help="Weight for the range penalty loss component (default: %(default)f)")
-parser.add_argument("--regularity_weight", type=float, default=0.1, help="Weight for the regularity loss component (default: %(default)f)")
 parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 
@@ -53,7 +52,6 @@ noise_scale = args.noise_scale
 check_interval = args.check_interval
 orthogonal_diagonal_weight = args.orthogonal_diagonal_weight
 adj_diagonal_weight = args.adj_diagonal_weight
-regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
 
 print(f"lr: {lr}")
@@ -62,7 +60,6 @@ print(f"range_penalty_weight: {range_penalty_weight}")
 print(f"noise_scale: {noise_scale}")
 print(f"orthogonal_diagonal_weight: {orthogonal_diagonal_weight}")
 print(f"adj_diagonal_weight: {adj_diagonal_weight}")
-print(f"regularity_weight: {regularity_weight}")
 print(f"zero_diag_weight: {zero_diag_weight}")
 print(f"batch_size: {batch_size}")
 

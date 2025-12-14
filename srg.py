@@ -37,7 +37,6 @@ parser.add_argument("--orthogonal_diagonal_weight", type=float, default=10.0, he
 parser.add_argument("--adj_diagonal_weight", type=float, default=1e-3, help="Weight for the adj diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=100.0, help="Weight for the range penalty loss component (default: %(default)f)")
-parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
 
 batch_size = args.batch_size
@@ -52,7 +51,6 @@ noise_scale = args.noise_scale
 check_interval = args.check_interval
 orthogonal_diagonal_weight = args.orthogonal_diagonal_weight
 adj_diagonal_weight = args.adj_diagonal_weight
-zero_diag_weight = args.zero_diag_weight
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -60,7 +58,6 @@ print(f"range_penalty_weight: {range_penalty_weight}")
 print(f"noise_scale: {noise_scale}")
 print(f"orthogonal_diagonal_weight: {orthogonal_diagonal_weight}")
 print(f"adj_diagonal_weight: {adj_diagonal_weight}")
-print(f"zero_diag_weight: {zero_diag_weight}")
 print(f"batch_size: {batch_size}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
@@ -148,8 +145,6 @@ while True:
         adj_diagonal_loss, adj_off_diagonal_loss = separate_diagonal_loss(adj_loss_raw)
         adj_loss = adj_diagonal_loss * adj_diagonal_weight + adj_off_diagonal_loss
 
-        zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
-
         over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
         under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
         range_penalty = over_one_penalty + under_zero_penalty
@@ -157,7 +152,6 @@ while True:
         loss_batch =\
             orhogonal_loss * orthogonal_weight + \
             range_penalty * range_penalty_weight + \
-            zero_diag_loss * zero_diag_weight + \
             adj_loss
         loss_batch_grad = torch.ones_like(loss_batch)
         loss_batch.backward(gradient=loss_batch_grad)
@@ -180,11 +174,10 @@ while True:
             f'min_loss: {loss_batch[loss_min_index].item():.4f}                \n'\
             f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
             f'range_penalty: {range_penalty[loss_min_index].item():.4f}                \n'\
-            f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
             f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
 
         if is_info_printed:
-            info = '\033[7A' + info
+            info = '\033[6A' + info
         print(info, end='', flush=True)
         is_info_printed = True
 

@@ -39,9 +39,6 @@ parser.add_argument("--qjq_diagonal_weight", type=float, default=1, help="Weight
 parser.add_argument("--adj_diagonal_weight", type=float, default=1e-3, help="Weight for the adj diagonal loss component (default: %(default)f)")
 
 parser.add_argument("--range_penalty_weight", type=float, default=100.0, help="Weight for the range penalty loss component (default: %(default)f)")
-parser.add_argument("--binary_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
-parser.add_argument("--binary_refresh_ratio", type=float, default=0.1, help="Ratio of elements to refresh in the binary target each iteration (default: %(default)f)")
-parser.add_argument("--binary_temperature", type=float, default=0.01, help="Temperature parameter for binary target sampling (default: %(default)f)")
 parser.add_argument("--regularity_weight", type=float, default=0.1, help="Weight for the regularity loss component (default: %(default)f)")
 parser.add_argument("--zero_diag_weight", type=float, default=10.0, help="Weight for the zero diagonal loss component (default: %(default)f)")
 args = parser.parse_args()
@@ -57,14 +54,11 @@ m = args.mu
 name = args.name
 noise_scale = args.noise_scale
 check_interval = args.check_interval
-binary_weight = args.binary_weight
 orthogonal_diagonal_weight = args.orthogonal_diagonal_weight
 qjq_diagonal_weight = args.qjq_diagonal_weight
 adj_diagonal_weight = args.adj_diagonal_weight
 regularity_weight = args.regularity_weight
 zero_diag_weight = args.zero_diag_weight
-binary_refresh_ratio = args.binary_refresh_ratio
-binary_temperature = args.binary_temperature
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -76,9 +70,6 @@ print(f"qjq_diagonal_weight: {qjq_diagonal_weight}")
 print(f"adj_diagonal_weight: {adj_diagonal_weight}")
 print(f"regularity_weight: {regularity_weight}")
 print(f"zero_diag_weight: {zero_diag_weight}")
-print(f"binary_weight: {binary_weight}")
-print(f"binary_refresh_ratio: {binary_refresh_ratio}")
-print(f"binary_temperature: {binary_temperature}")
 print(f"batch_size: {batch_size}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
@@ -151,8 +142,6 @@ min_srg_test = 65536
 step = 0
 is_info_printed = False
 
-binary_target = torch.rand_like(eyes, device=device).round()
-
 while True:
     try:
         optimizer.zero_grad()
@@ -182,17 +171,10 @@ while True:
         under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
         range_penalty = over_one_penalty + under_zero_penalty
 
-        binary_target_mask = (torch.rand_like(adj_mat_hat) < binary_refresh_ratio).float()
-        binary_target_sample = (torch.rand_like(adj_mat_hat) < F.sigmoid((adj_mat_hat.detach() - 0.5) / binary_temperature)).float()
-        binary_target = torch.lerp(binary_target, binary_target_sample, binary_target_mask)
-
-        binary_loss = F.mse_loss(adj_mat_hat, binary_target, reduction='none').mean(dim=(1,2))
-
         loss_batch =\
             orhogonal_loss * orthogonal_weight + \
             qjq_loss * qjq_weight + \
             range_penalty * range_penalty_weight + \
-            binary_loss * binary_weight + \
             regularity_loss * regularity_weight + \
             zero_diag_loss * zero_diag_weight + \
             adj_loss
@@ -218,13 +200,12 @@ while True:
             f'orthogonal_loss: {orhogonal_loss[loss_min_index].item():.4f}                \n'\
             f'qjq_loss: {qjq_loss[loss_min_index].item():.4f}                \n'\
             f'range_penalty: {range_penalty[loss_min_index].item():.4f}                \n'\
-            f'binary_loss: {binary_loss[loss_min_index].item():.4f}                \n'\
             f'regularity_loss: {regularity_loss[loss_min_index].item():.4f}                \n'\
             f'zero_diag_loss: {zero_diag_loss[loss_min_index].item():.4f}                \n'\
             f'adj_loss: {adj_loss[loss_min_index].item():.4f}                \n'\
 
         if is_info_printed:
-            info = '\033[10A' + info
+            info = '\033[9A' + info
         print(info, end='', flush=True)
         is_info_printed = True
 

@@ -38,7 +38,7 @@ parser.add_argument("--orthogonal_diagonal_weight", type=float, default=10.0, he
 parser.add_argument("--qjq_diagonal_weight", type=float, default=1, help="Weight for the qjq diagonal loss component (default: %(default)f)")
 parser.add_argument("--adj_diagonal_weight", type=float, default=1e-3, help="Weight for the adj diagonal loss component (default: %(default)f)")
 
-parser.add_argument("--range_penalty_weight", type=float, default=10.0, help="Weight for the range penalty loss component (default: %(default)f)")
+parser.add_argument("--range_penalty_weight", type=float, default=100.0, help="Weight for the range penalty loss component (default: %(default)f)")
 parser.add_argument("--binary_weight", type=float, default=1.0, help="Weight for the binary penalty loss component (default: %(default)f)")
 parser.add_argument("--binary_refresh_ratio", type=float, default=0.1, help="Ratio of elements to refresh in the binary target each iteration (default: %(default)f)")
 parser.add_argument("--binary_temperature", type=float, default=0.01, help="Temperature parameter for binary target sampling (default: %(default)f)")
@@ -156,6 +156,8 @@ binary_target = torch.rand_like(eyes, device=device).round()
 while True:
     try:
         optimizer.zero_grad()
+        d = torch.diag_embed(diagonal_tensor)
+
         orhogonal_loss_raw = F.mse_loss(torch.matmul(q.transpose(-2, -1), q), eyes, reduction='none')
         orhogonal_loss_diag, orhogonal_loss_off_diag = separate_diagonal_loss(orhogonal_loss_raw)
         orhogonal_loss = orhogonal_loss_diag * orthogonal_diagonal_weight + orhogonal_loss_off_diag
@@ -165,13 +167,16 @@ while True:
         qjq_diag_loss, qjq_off_diag_loss = separate_diagonal_loss(qjq_loss_raw)
         qjq_loss = qjq_diag_loss * qjq_diagonal_weight + qjq_off_diag_loss
 
-        d = torch.diag_embed(diagonal_tensor)
+        regularity_loss = F.mse_loss(torch.matmul(d, qjq), torch.matmul(qjq, d), reduction='none').mean(dim=(1,2))
+
         adj_mat_hat = torch.matmul(q, torch.matmul(d, q.transpose(-2, -1)))
         adj_lhs = torch.matmul(adj_mat_hat, adj_mat_hat) + (m - l) * adj_mat_hat + (m - k) * eyes - m * torch.ones_like(adj_mat_hat)
         noise = torch.randn_like(adj_lhs) * noise_scale * adj_lhs.std(dim=(-2, -1), keepdim=True).detach()
         adj_loss_raw = F.mse_loss(adj_lhs, noise, reduction='none')
         adj_diagonal_loss, adj_off_diagonal_loss = separate_diagonal_loss(adj_loss_raw)
         adj_loss = adj_diagonal_loss * adj_diagonal_weight + adj_off_diagonal_loss
+
+        zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
 
         over_one_penalty = F.relu(adj_mat_hat - 1).mean(dim=(1,2))
         under_zero_penalty = F.relu(-adj_mat_hat).mean(dim=(1,2))
@@ -182,10 +187,6 @@ while True:
         binary_target = torch.lerp(binary_target, binary_target_sample, binary_target_mask)
 
         binary_loss = F.mse_loss(adj_mat_hat, binary_target, reduction='none').mean(dim=(1,2))
-
-        regularity_loss = F.mse_loss(torch.matmul(d, qjq), torch.matmul(qjq, d), reduction='none').mean(dim=(1,2))
-
-        zero_diag_loss = torch.diagonal(adj_mat_hat, dim1=-2, dim2=-1).pow(2).mean(dim=1)
 
         loss_batch =\
             orhogonal_loss * orthogonal_weight + \

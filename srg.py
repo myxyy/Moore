@@ -40,6 +40,8 @@ parser.add_argument("--range_penalty_weight", type=float, default=100.0, help="W
 
 parser.add_argument("--annealing_interval_multiplier", type=float, default=1.2, help="Multiplier for annealing interval (default: %(default)d)")
 parser.add_argument("--annealing_weight", type=float, default=10.0, help="Weight for annealing loss component (default: %(default)f)")
+parser.add_argument("--annealing_wakeup", type=float, default=0.1, help="Wakeup ratio of steps for annealing (default: %(default)f)")
+parser.add_argument("--annealing_laydown", type=float, default=0.1, help="Laydown ratio of steps for annealing (default: %(default)f)")
 
 args = parser.parse_args()
 
@@ -57,6 +59,8 @@ orthogonal_diagonal_weight = args.orthogonal_diagonal_weight
 adj_diagonal_weight = args.adj_diagonal_weight
 annealing_interval_multiplier = args.annealing_interval_multiplier
 annealing_weight = args.annealing_weight
+annealing_wakeup = args.annealing_wakeup
+annealing_laydown = args.annealing_laydown
 
 print(f"lr: {lr}")
 print(f"orthogonal_weight: {orthogonal_weight}")
@@ -67,6 +71,8 @@ print(f"adj_diagonal_weight: {adj_diagonal_weight}")
 print(f"batch_size: {batch_size}")
 print(f"annealing_interval_multiplier: {annealing_interval_multiplier}")
 print(f"annealing_weight: {annealing_weight}")
+print(f"annealing_wakeup: {annealing_wakeup}")
+print(f"annealing_laydown: {annealing_laydown}")
 
 torch.set_printoptions(precision=1, edgeitems=1000, linewidth=1000)
 
@@ -162,7 +168,10 @@ while True:
 
         if annealing_step == 0:
             annealing_start_ratios = torch.rand_like(adj_mat_hat)
-        annealing_mask = (annealing_start_ratios < (annealing_step / annealing_interval)).float()
+        annealing_ratio = annealing_step / annealing_interval
+        annealing_ratio = (annealing_ratio - annealing_wakeup) / (1 - annealing_laydown - annealing_wakeup)
+        annealing_ratio = min(max(annealing_ratio, 0.0), 1.0)
+        annealing_mask = (annealing_start_ratios < annealing_ratio).float()
         annealing_loss = (torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0) * annealing_mask).mean(dim=(1,2))
         annealing_raw_loss = torch.clamp(adj_mat_hat * (1 - adj_mat_hat), min=0).mean(dim=(1,2))
 
